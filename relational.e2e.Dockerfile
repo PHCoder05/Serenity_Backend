@@ -8,6 +8,7 @@ RUN cd /tmp/app && npm install
 
 COPY . /usr/src/app
 RUN cp -a /tmp/app/node_modules /usr/src/app
+RUN cp -a /usr/src/app/src/i18n /usr/src/app/i18n
 COPY ./wait-for-it.sh /opt/wait-for-it.sh
 RUN chmod +x /opt/wait-for-it.sh
 COPY ./startup.relational.ci.sh /opt/startup.relational.ci.sh
