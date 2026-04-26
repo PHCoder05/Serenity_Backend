@@ -1,12 +1,6 @@
 # Introduction
 
-## Online demo
-
-Demo: <https://nestjs-boilerplate-test.herokuapp.com/docs>
-
-Frontend (React, Next.js): <https://github.com/brocoders/extensive-react-boilerplate>
-
-<https://github.com/user-attachments/assets/a66f114a-c714-4036-8eeb-20cbf04ae985>
+This is the backend API for the Serenity project.
 
 ## Features
 

@@ -1,4 +1,4 @@
-# NestJS Boilerplate Documentation
+# Serenity API Documentation
 
 ---
 
