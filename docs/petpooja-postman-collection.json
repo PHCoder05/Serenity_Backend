@@ -1,0 +1,229 @@
+{
+  "info": {
+    "name": "PetPooja API Integration (Serenity Backend)",
+    "description": "Postman Collection for all 10 PetPooja API endpoints, including both outbound requests to PetPooja servers and inbound webhooks.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Outbound (PetPooja Hosted APIs)",
+      "description": "APIs hosted by PetPooja that your backend calls.",
+      "item": [
+        {
+          "name": "Save Order",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "app-key", "value": "{{app_key}}" },
+              { "key": "app-secret", "value": "{{app_secret}}" },
+              { "key": "access-token", "value": "{{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{petpooja_save_order_url}}",
+              "host": [ "{{petpooja_save_order_url}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restID\": \"{{rest_id}}\",\n  \"orderinfo\": {\n    \"Order\": {\n      \"details\": {\n        \"orderID\": \"A-1\",\n        \"preorder_date\": \"2026-06-11\",\n        \"preorder_time\": \"12:00:00\",\n        \"order_type\": \"H\",\n        \"payment_type\": \"COD\",\n        \"created_on\": \"2026-06-11 12:00:00\"\n      }\n    }\n  }\n}"
+            }
+          }
+        },
+        {
+          "name": "Fetch Menu",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{petpooja_fetch_menu_url}}",
+              "host": [ "{{petpooja_fetch_menu_url}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_key\": \"{{app_key}}\",\n  \"app_secret\": \"{{app_secret}}\",\n  \"access_token\": \"{{access_token}}\",\n  \"restID\": \"{{rest_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Order Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{petpooja_update_order_status_url}}",
+              "host": [ "{{petpooja_update_order_status_url}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_key\": \"{{app_key}}\",\n  \"app_secret\": \"{{app_secret}}\",\n  \"access_token\": \"{{access_token}}\",\n  \"restID\": \"{{rest_id}}\",\n  \"clientorderID\": \"A-1\",\n  \"cancelReason\": \"Out of stock\",\n  \"status\": \"-1\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Rider Status Update",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{petpooja_rider_status_url}}",
+              "host": [ "{{petpooja_rider_status_url}}" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"app_key\": \"{{app_key}}\",\n  \"app_secret\": \"{{app_secret}}\",\n  \"access_token\": \"{{access_token}}\",\n  \"order_id\": 123,\n  \"outlet_id\": \"{{rest_id}}\",\n  \"status\": \"rider-assigned\",\n  \"rider_data\": {\n    \"rider_name\": \"John Doe\",\n    \"rider_phone_number\": \"9999999999\"\n  },\n  \"external_order_id\": \"\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Inbound Webhooks (Your Hosted APIs)",
+      "description": "APIs hosted on your Serenity backend that PetPooja calls.",
+      "item": [
+        {
+          "name": "Push Menu Endpoint",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "app-key", "value": "{{app_key}}" },
+              { "key": "app-secret", "value": "{{app_secret}}" },
+              { "key": "access-token", "value": "{{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_backend_url}}/api/v1/petpooja/webhook/push-menu",
+              "host": [ "{{local_backend_url}}" ],
+              "path": [ "api", "v1", "petpooja", "webhook", "push-menu" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"success\": \"1\",\n  \"restaurants\": [\n    { \"restaurantid\": \"{{rest_id}}\", \"active\": \"1\" }\n  ]\n}"
+            }
+          }
+        },
+        {
+          "name": "Order Callback",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "app-key", "value": "{{app_key}}" },
+              { "key": "app-secret", "value": "{{app_secret}}" },
+              { "key": "access-token", "value": "{{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_backend_url}}/api/v1/petpooja/webhook/callback",
+              "host": [ "{{local_backend_url}}" ],
+              "path": [ "api", "v1", "petpooja", "webhook", "callback" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restID\": \"{{rest_id}}\",\n  \"orderID\": \"A-1\",\n  \"status\": \"1\",\n  \"cancel_reason\": \"\",\n  \"minimum_prep_time\": 20\n}"
+            }
+          }
+        },
+        {
+          "name": "Item Stock Update",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "app-key", "value": "{{app_key}}" },
+              { "key": "app-secret", "value": "{{app_secret}}" },
+              { "key": "access-token", "value": "{{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_backend_url}}/api/v1/petpooja/webhook/item-stock",
+              "host": [ "{{local_backend_url}}" ],
+              "path": [ "api", "v1", "petpooja", "webhook", "item-stock" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restID\": \"{{rest_id}}\",\n  \"type\": \"item\",\n  \"inStock\": true,\n  \"itemID\": [\"1234\", \"5678\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "Item Stock Off Update",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "app-key", "value": "{{app_key}}" },
+              { "key": "app-secret", "value": "{{app_secret}}" },
+              { "key": "access-token", "value": "{{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_backend_url}}/api/v1/petpooja/webhook/item-stock-off",
+              "host": [ "{{local_backend_url}}" ],
+              "path": [ "api", "v1", "petpooja", "webhook", "item-stock-off" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restID\": \"{{rest_id}}\",\n  \"type\": \"item\",\n  \"inStock\": false,\n  \"itemID\": [\"1234\", \"5678\"],\n  \"autoTurnOnTime\": \"custom\",\n  \"customTurnOnTime\": \"2026-06-11 18:00\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Store Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "app-key", "value": "{{app_key}}" },
+              { "key": "app-secret", "value": "{{app_secret}}" },
+              { "key": "access-token", "value": "{{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_backend_url}}/api/v1/petpooja/webhook/get-store-status",
+              "host": [ "{{local_backend_url}}" ],
+              "path": [ "api", "v1", "petpooja", "webhook", "get-store-status" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restID\": \"{{rest_id}}\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Store Status",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "app-key", "value": "{{app_key}}" },
+              { "key": "app-secret", "value": "{{app_secret}}" },
+              { "key": "access-token", "value": "{{access_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_backend_url}}/api/v1/petpooja/webhook/update-store-status",
+              "host": [ "{{local_backend_url}}" ],
+              "path": [ "api", "v1", "petpooja", "webhook", "update-store-status" ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restID\": \"{{rest_id}}\",\n  \"store_status\": 0,\n  \"turn_on_time\": \"2026-06-11 00:00:00\",\n  \"reason\": \"Holiday\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "local_backend_url", "value": "http://localhost:3000" },
+    { "key": "app_key", "value": "YOUR_APP_KEY" },
+    { "key": "app_secret", "value": "YOUR_APP_SECRET" },
+    { "key": "access_token", "value": "YOUR_ACCESS_TOKEN" },
+    { "key": "rest_id", "value": "YOUR_REST_ID" },
+    { "key": "petpooja_save_order_url", "value": "https://47pfzh5sf2.execute-api.ap-southeast-1.amazonaws.com/V1/save_order" },
+    { "key": "petpooja_fetch_menu_url", "value": "https://qle1yy2ydc.execute-api.ap-southeast-1.amazonaws.com/V1/mapped_restaurant_menus" },
+    { "key": "petpooja_update_order_status_url", "value": "https://qle1yy2ydc.execute-api.ap-southeast-1.amazonaws.com/V1/update_order_status" },
+    { "key": "petpooja_rider_status_url", "value": "https://qle1yy2ydc.execute-api.ap-southeast-1.amazonaws.com/V1/rider_status_update" }
+  ]
+}
