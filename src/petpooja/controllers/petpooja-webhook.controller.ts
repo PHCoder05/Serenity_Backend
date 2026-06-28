@@ -1,84 +1,70 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { PetpoojaAuthGuard } from '../guards/petpooja-auth.guard';
 import { PushMenuDto } from '../dto/push-menu.dto';
 import { OrderCallbackDto } from '../dto/order-callback.dto';
 import { ItemStockDto, ItemStockOffDto } from '../dto/item-stock.dto';
-import { GetStoreStatusDto, UpdateStoreStatusDto } from '../dto/store-status.dto';
+import {
+  GetStoreStatusDto,
+  UpdateStoreStatusDto,
+} from '../dto/store-status.dto';
+import { PetpoojaWebhookService } from '../services/petpooja-webhook.service';
 
 @ApiTags('Petpooja Webhooks')
-@Controller('api/v1/petpooja/webhook')
+@Controller({
+  path: 'petpooja/webhook',
+  version: '1',
+})
 @UseGuards(PetpoojaAuthGuard)
 export class PetpoojaWebhookController {
-  
+  constructor(private readonly webhookService: PetpoojaWebhookService) {}
+
   @Post('push-menu')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Receive menu updates from PetPooja' })
-  async pushMenu(@Body() dto: PushMenuDto) {
-    // Process menu update
-    return {
-      success: '1',
-      message: 'Menu items are successfully listed.',
-    };
+  pushMenu(@Body() dto: PushMenuDto) {
+    return this.webhookService.pushMenu(dto);
   }
 
   @Post('callback')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Receive order status updates' })
-  async orderCallback(@Body() dto: OrderCallbackDto) {
-    // Process order status update
-    return {
-      success: '1',
-      message: 'Order callback received successfully.',
-    };
+  orderCallback(@Body() dto: OrderCallbackDto) {
+    return this.webhookService.orderCallback(dto);
   }
 
   @Post('item-stock')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Toggle item/addon in-stock' })
-  async itemStock(@Body() dto: ItemStockDto) {
-    // Update item stock
-    return {
-      code: 200,
-      status: 'success',
-      message: 'Stock status updated successfully',
-    };
+  itemStock(@Body() dto: ItemStockDto) {
+    return this.webhookService.itemStock(dto);
   }
 
   @Post('item-stock-off')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark items out-of-stock' })
-  async itemStockOff(@Body() dto: ItemStockOffDto) {
-    // Update item stock off
-    return {
-      code: 200,
-      status: 'success',
-      message: 'Stock status updated successfully',
-    };
+  itemStockOff(@Body() dto: ItemStockOffDto) {
+    return this.webhookService.itemStockOff(dto);
   }
 
   @Post('get-store-status')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Return current store status' })
-  async getStoreStatus(@Body() dto: GetStoreStatusDto) {
-    // Return actual store status
-    return {
-      http_code: 200,
-      status: 'success',
-      store_status: '1', // 1=Open, 0=Closed
-      message: 'Store Delivery Status fetched successfully',
-    };
+  getStoreStatus(@Body() dto: GetStoreStatusDto) {
+    return this.webhookService.getStoreStatus(dto);
   }
 
   @Post('update-store-status')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Toggle store open/close' })
-  async updateStoreStatus(@Body() dto: UpdateStoreStatusDto) {
-    // Update store status
-    return {
-      http_code: 200,
-      status: 'success',
-      message: 'Store Status updated successfully',
-    };
+  updateStoreStatus(@Body() dto: UpdateStoreStatusDto) {
+    return this.webhookService.updateStoreStatus(dto);
   }
 }

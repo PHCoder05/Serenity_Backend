@@ -35,6 +35,14 @@ class EnvironmentVariablesValidator {
   @IsUrl({ require_tld: false })
   @IsOptional()
   PETPOOJA_RIDER_STATUS_URL: string;
+
+  @IsString()
+  @IsOptional()
+  PETPOOJA_ORDER_SYNC_ENABLED: string;
+
+  @IsString()
+  @IsOptional()
+  PETPOOJA_MENU_SYNC_ENABLED: string;
 }
 
 export default registerAs<PetpoojaConfig>('petpooja', () => {
@@ -57,5 +65,7 @@ export default registerAs<PetpoojaConfig>('petpooja', () => {
     riderStatusUrl:
       process.env.PETPOOJA_RIDER_STATUS_URL ||
       'https://qle1yy2ydc.execute-api.ap-southeast-1.amazonaws.com/V1/rider_status_update',
+    orderSyncEnabled: process.env.PETPOOJA_ORDER_SYNC_ENABLED !== 'false',
+    menuSyncEnabled: process.env.PETPOOJA_MENU_SYNC_ENABLED !== 'false',
   };
 });

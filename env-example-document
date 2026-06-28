@@ -52,11 +52,13 @@ APPLE_APP_AUDIENCE=[]
 WORKER_HOST=redis://redis:6379/1
 
 # PetPooja Integration
-PETPOOJA_APP_KEY=
-PETPOOJA_APP_SECRET=
-PETPOOJA_ACCESS_TOKEN=
-PETPOOJA_RESTAURANT_ID=
+PETPOOJA_APP_KEY=test-app-key
+PETPOOJA_APP_SECRET=test-app-secret
+PETPOOJA_ACCESS_TOKEN=test-access-token
+PETPOOJA_RESTAURANT_ID=test-rest-id
 PETPOOJA_SAVE_ORDER_URL=https://47pfzh5sf2.execute-api.ap-southeast-1.amazonaws.com/V1/save_order
 PETPOOJA_FETCH_MENU_URL=https://qle1yy2ydc.execute-api.ap-southeast-1.amazonaws.com/V1/mapped_restaurant_menus
 PETPOOJA_UPDATE_ORDER_STATUS_URL=https://qle1yy2ydc.execute-api.ap-southeast-1.amazonaws.com/V1/update_order_status
 PETPOOJA_RIDER_STATUS_URL=https://qle1yy2ydc.execute-api.ap-southeast-1.amazonaws.com/V1/rider_status_update
+PETPOOJA_ORDER_SYNC_ENABLED=true
+PETPOOJA_MENU_SYNC_ENABLED=true

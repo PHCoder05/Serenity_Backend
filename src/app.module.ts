@@ -27,6 +27,7 @@ import { AllConfigType } from './config/config.type';
 import { SessionModule } from './session/session.module';
 import { MailerModule } from './mailer/mailer.module';
 import { PetpoojaModule } from './petpooja/petpooja.module';
+import { SerenityModule } from './serenity/serenity.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MongooseConfigService } from './database/mongoose-config.service';
 import { DatabaseConfig } from './database/config/database-config.type';
@@ -68,7 +69,7 @@ const infrastructureDatabaseModule = (databaseConfig() as DatabaseConfig)
         fallbackLanguage: configService.getOrThrow('app.fallbackLanguage', {
           infer: true,
         }),
-        loaderOptions: { path: path.join(__dirname, '../i18n/'), watch: true },
+        loaderOptions: { path: path.join(__dirname, 'i18n/'), watch: true },
       }),
       resolvers: [
         {
@@ -98,6 +99,7 @@ const infrastructureDatabaseModule = (databaseConfig() as DatabaseConfig)
     HomeModule,
     SupabaseModule,
     PetpoojaModule,
+    SerenityModule,
   ],
 })
 export class AppModule {}

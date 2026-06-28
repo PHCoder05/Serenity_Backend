@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:17.9-alpine
+    expose:
+      - 5432
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+
+  maildev:
+    build:
+      context: ../../../
+      dockerfile: ops/docker/images/maildev.Dockerfile
+    expose:
+      - 1080
+      - 1025
+
+  petpooja-mock:
+    image: node:24.14.1-alpine
+    working_dir: /usr/src/app
+    volumes:
+      - ../../../test:/usr/src/app/test
+    command: node test/mocks/petpooja-mock-server.js
+    expose:
+      - 3999
+
+  # Uncomment to use redis
+  # redis:
+  #   image: redis:7-alpine
+  #   expose:
+  #     - 6379
+
+  api:
+    build:
+      context: ../../../
+      dockerfile: ops/docker/images/relational.test.Dockerfile
+    env_file:
+      - ../../../env-example-relational
+    environment:
+      PETPOOJA_SAVE_ORDER_URL: http://petpooja-mock:3999/save_order
+      PETPOOJA_FETCH_MENU_URL: http://petpooja-mock:3999/mapped_restaurant_menus
+      PETPOOJA_UPDATE_ORDER_STATUS_URL: http://petpooja-mock:3999/update_order_status
+      PETPOOJA_RIDER_STATUS_URL: http://petpooja-mock:3999/rider_status_update
+    volumes:
+      - ../../../src:/usr/src/app/src
+      - ../../../test:/usr/src/app/test

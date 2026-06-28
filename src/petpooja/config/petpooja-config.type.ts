@@ -7,4 +7,6 @@ export type PetpoojaConfig = {
   fetchMenuUrl: string;
   updateOrderStatusUrl: string;
   riderStatusUrl: string;
+  orderSyncEnabled: boolean;
+  menuSyncEnabled: boolean;
 };
