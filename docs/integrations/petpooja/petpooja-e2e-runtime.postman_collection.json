@@ -1,0 +1,243 @@
+{
+  "info": {
+    "_postman_id": "e4f7dc4f-5a90-4ac1-b602-1b3b5ff45e91",
+    "name": "Serenity PetPooja E2E Runtime Flow",
+    "description": "Runtime validation flow for Serenity frontend + backend + PetPooja mock integration.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Fetch Menu (sync)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "app-key",
+            "value": "{{appKey}}"
+          },
+          {
+            "key": "app-secret",
+            "value": "{{appSecret}}"
+          },
+          {
+            "key": "access-token",
+            "value": "{{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"restID\": \"{{restId}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/petpooja/outbound/fetch-menu",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "petpooja",
+            "outbound",
+            "fetch-menu"
+          ]
+        },
+        "description": "Run first to populate menu entries with petpoojaItemId mapping."
+      }
+    },
+    {
+      "name": "2. Callback: Accepted",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "app-key",
+            "value": "{{appKey}}"
+          },
+          {
+            "key": "app-secret",
+            "value": "{{appSecret}}"
+          },
+          {
+            "key": "access-token",
+            "value": "{{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"restID\": \"{{restId}}\",\n  \"orderID\": \"{{orderId}}\",\n  \"status\": \"1\",\n  \"cancel_reason\": \"\",\n  \"minimum_prep_time\": 20,\n  \"is_modified\": \"No\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/petpooja/webhook/callback",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "petpooja",
+            "webhook",
+            "callback"
+          ]
+        },
+        "description": "Set {{orderId}} after placing an order from the app."
+      }
+    },
+    {
+      "name": "3. Item Stock Off",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "app-key",
+            "value": "{{appKey}}"
+          },
+          {
+            "key": "app-secret",
+            "value": "{{appSecret}}"
+          },
+          {
+            "key": "access-token",
+            "value": "{{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"restID\": \"{{restId}}\",\n  \"type\": \"item\",\n  \"inStock\": false,\n  \"itemID\": [\"7532306\"],\n  \"autoTurnOnTime\": \"custom\",\n  \"customTurnOnTime\": \"2026-06-29 10:00:00\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/petpooja/webhook/item-stock-off",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "petpooja",
+            "webhook",
+            "item-stock-off"
+          ]
+        }
+      }
+    },
+    {
+      "name": "4. Close Store",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "app-key",
+            "value": "{{appKey}}"
+          },
+          {
+            "key": "app-secret",
+            "value": "{{appSecret}}"
+          },
+          {
+            "key": "access-token",
+            "value": "{{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"restID\": \"{{restId}}\",\n  \"store_status\": 0,\n  \"turn_on_time\": \"2026-06-29 09:00:00\",\n  \"reason\": \"Testing\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/petpooja/webhook/update-store-status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "petpooja",
+            "webhook",
+            "update-store-status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "5. Re-open Store",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "app-key",
+            "value": "{{appKey}}"
+          },
+          {
+            "key": "app-secret",
+            "value": "{{appSecret}}"
+          },
+          {
+            "key": "access-token",
+            "value": "{{accessToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"restID\": \"{{restId}}\",\n  \"store_status\": 1,\n  \"turn_on_time\": \"\",\n  \"reason\": \"\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/petpooja/webhook/update-store-status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "petpooja",
+            "webhook",
+            "update-store-status"
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "appKey",
+      "value": "test-app-key"
+    },
+    {
+      "key": "appSecret",
+      "value": "test-app-secret"
+    },
+    {
+      "key": "accessToken",
+      "value": "test-access-token"
+    },
+    {
+      "key": "restId",
+      "value": "test-rest-id"
+    },
+    {
+      "key": "orderId",
+      "value": "order-CHANGE-ME"
+    }
+  ]
+}

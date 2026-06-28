@@ -1,0 +1,9 @@
+export { DiagnosticsService } from './diagnostics.service';
+export { EventsService } from './events.service';
+export { LoyaltyService } from './loyalty.service';
+export { MenuService } from './menu.service';
+export { OrdersService } from './orders.service';
+export { PaymentsService } from './payments.service';
+export { ProfileService } from './profile.service';
+export { SavedBowlsService } from './saved-bowls.service';
+export { StoreService } from './store.service';

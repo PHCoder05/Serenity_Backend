@@ -16,3 +16,4 @@
 - [Benchmarking](benchmarking.md)
 - [Automatic update of dependencies](automatic-update-dependencies.md)
 - [Translations](translations.md)
+- [PetPooja Integration](integrations/petpooja/README.md)

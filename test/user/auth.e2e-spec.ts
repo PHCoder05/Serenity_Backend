@@ -119,6 +119,65 @@ describe('Auth Module', () => {
     });
   });
 
+  describe('Forgot password', () => {
+    it('should fail for missing email: /api/v1/auth/forgot/password (POST)', () => {
+      return request(app)
+        .post('/api/v1/auth/forgot/password')
+        .send({ email: 'missing.user@example.com' })
+        .expect(422);
+    });
+
+    it('should send reset email and allow password reset', async () => {
+      const resetPassword = `reset-${Date.now()}`;
+
+      await request(app)
+        .post('/api/v1/auth/forgot/password')
+        .send({ email: TESTER_EMAIL })
+        .expect(204);
+
+      const hash = await request(mail)
+        .get('/email')
+        .then(({ body }) =>
+          body
+            .find(
+              (letter) =>
+                letter.to[0].address.toLowerCase() ===
+                  TESTER_EMAIL.toLowerCase() &&
+                /.*password\-change\?hash=([^&\s]+).*/g.test(letter.text),
+            )
+            ?.text.replace(/.*password\-change\?hash=([^&\s]+).*/g, '$1'),
+        );
+
+      await request(app)
+        .post('/api/v1/auth/reset/password')
+        .send({
+          hash,
+          password: resetPassword,
+        })
+        .expect(204);
+
+      await request(app)
+        .post('/api/v1/auth/email/login')
+        .send({ email: TESTER_EMAIL, password: resetPassword })
+        .expect(200);
+
+      await request(app)
+        .patch('/api/v1/auth/me')
+        .auth(
+          await request(app)
+            .post('/api/v1/auth/email/login')
+            .send({ email: TESTER_EMAIL, password: resetPassword })
+            .then(({ body }) => body.token),
+          { type: 'bearer' },
+        )
+        .send({
+          password: TESTER_PASSWORD,
+          oldPassword: resetPassword,
+        })
+        .expect(200);
+    });
+  });
+
   describe('Logged in user', () => {
     let newUserApiToken;
 
@@ -192,6 +251,23 @@ describe('Auth Module', () => {
           type: 'bearer',
         })
         .send()
+        .expect(401);
+    });
+
+    it('should logout successfully: /api/v1/auth/logout (POST)', async () => {
+      const loginResponse = await request(app)
+        .post('/api/v1/auth/email/login')
+        .send({ email: newUserEmail, password: newUserPassword })
+        .expect(200);
+
+      await request(app)
+        .post('/api/v1/auth/logout')
+        .auth(loginResponse.body.token, { type: 'bearer' })
+        .expect(204);
+
+      await request(app)
+        .post('/api/v1/auth/refresh')
+        .auth(loginResponse.body.refreshToken, { type: 'bearer' })
         .expect(401);
     });
 

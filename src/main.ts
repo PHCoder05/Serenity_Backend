@@ -12,6 +12,7 @@ import { AppModule } from './app.module';
 import validationOptions from './utils/validation-options';
 import { AllConfigType } from './config/config.type';
 import { ResolvePromisesInterceptor } from './utils/serializer.interceptor';
+import { randomUUID } from 'crypto';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: true });
@@ -29,6 +30,13 @@ async function bootstrap() {
     type: VersioningType.URI,
   });
   app.useGlobalPipes(new ValidationPipe(validationOptions));
+  app.use((req: any, res: any, next: () => void) => {
+    const correlationId =
+      req.headers['x-correlation-id']?.toString() ?? randomUUID();
+    req.correlationId = correlationId;
+    res.setHeader('x-correlation-id', correlationId);
+    next();
+  });
   app.useGlobalInterceptors(
     // ResolvePromisesInterceptor is used to resolve promises in responses because class-transformer can't do it
     // https://github.com/typestack/class-transformer/issues/549

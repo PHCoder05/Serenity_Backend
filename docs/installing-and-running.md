@@ -39,7 +39,7 @@ Switching between TypeORM and Mongoose is implemented based on the [Hexagonal Ar
 1. Run additional container:
 
    ```bash
-   docker compose up -d postgres adminer maildev
+   docker compose -f ops/docker/compose/docker-compose.yaml up -d postgres adminer maildev
    ```
 
 1. Install dependency
@@ -104,7 +104,7 @@ Switching between TypeORM and Mongoose is implemented based on the [Hexagonal Ar
 1. Run additional container:
 
    ```bash
-   docker compose -f docker-compose.document.yaml up -d mongo mongo-express maildev
+   docker compose -f ops/docker/compose/docker-compose.document.yaml up -d mongo mongo-express maildev
    ```
 
 1. Install dependency
@@ -159,13 +159,13 @@ If you want quick run your app, you can use following commands:
 1. Run containers
 
    ```bash
-   docker compose up -d
+   docker compose -f ops/docker/compose/docker-compose.yaml up -d
    ```
 
 1. For check status run
 
    ```bash
-   docker compose logs
+   docker compose -f ops/docker/compose/docker-compose.yaml logs
    ```
 
 1. Open <http://localhost:3000>
@@ -192,13 +192,13 @@ If you want quick run your app, you can use following commands:
 1. Run containers
 
    ```bash
-   docker compose -f docker-compose.document.yaml up -d
+   docker compose -f ops/docker/compose/docker-compose.document.yaml up -d
    ```
 
 1. For check status run
 
    ```bash
-   docker compose -f docker-compose.document.yaml logs
+   docker compose -f ops/docker/compose/docker-compose.document.yaml logs
    ```
 
 1. Open <http://localhost:3000>
