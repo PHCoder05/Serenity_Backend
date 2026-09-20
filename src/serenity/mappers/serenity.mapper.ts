@@ -9,8 +9,10 @@ import {
   MOOD_COPY,
   MOODS,
 } from '../../database/seeds/relational/serenity/serenity-seed.data';
+import { tagsForMenuItem } from './menu-tags';
 
 export function toMenuItemDto(item: MenuItemEntity) {
+  const tags = tagsForMenuItem(item);
   return {
     id: item.id,
     name: item.name,
@@ -24,6 +26,9 @@ export function toMenuItemDto(item: MenuItemEntity) {
     extras: item.extras ?? undefined,
     isCustomizable: item.isCustomizable,
     inStock: item.inStock,
+    dietaryTags: tags.dietaryTags,
+    allergens: tags.allergens,
+    dietPreferenceIds: tags.dietPreferenceIds,
   };
 }
 
