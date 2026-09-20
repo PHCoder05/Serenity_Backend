@@ -144,4 +144,50 @@ describe('Users Module', () => {
       });
     });
   });
+
+  describe('Get one and delete', () => {
+    const deleteUserEmail = `user-delete.${Date.now()}@example.com`;
+    const deleteUserPassword = 'secret';
+    let deleteUserId: number;
+
+    beforeAll(async () => {
+      await request(app)
+        .post('/api/v1/users')
+        .auth(apiToken, { type: 'bearer' })
+        .send({
+          email: deleteUserEmail,
+          password: deleteUserPassword,
+          firstName: `Delete${Date.now()}`,
+          lastName: 'E2E',
+          role: { id: RoleEnum.user },
+          status: { id: StatusEnum.active },
+        })
+        .expect(201)
+        .then(({ body }) => {
+          deleteUserId = body.id;
+        });
+    });
+
+    it('should get user by id: /api/v1/users/:id (GET)', () => {
+      return request(app)
+        .get(`/api/v1/users/${deleteUserId}`)
+        .auth(apiToken, { type: 'bearer' })
+        .expect(200)
+        .expect(({ body }) => {
+          expect(body.email).toBe(deleteUserEmail);
+        });
+    });
+
+    it('should delete user by id: /api/v1/users/:id (DELETE)', async () => {
+      await request(app)
+        .delete(`/api/v1/users/${deleteUserId}`)
+        .auth(apiToken, { type: 'bearer' })
+        .expect(204);
+
+      await request(app)
+        .post('/api/v1/auth/email/login')
+        .send({ email: deleteUserEmail, password: deleteUserPassword })
+        .expect(422);
+    });
+  });
 });

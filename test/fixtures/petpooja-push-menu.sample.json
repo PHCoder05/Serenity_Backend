@@ -1,0 +1,107 @@
+{
+  "success": "1",
+  "restaurants": [
+    {
+      "restaurantid": "test-rest-id",
+      "active": "1",
+      "details": {
+        "restaurantname": "Serenity Test Kitchen"
+      },
+      "categories": [
+        {
+          "categoryid": "101",
+          "categoryname": "Bowls",
+          "active": "1",
+          "items": [
+            {
+              "itemid": "7778660",
+              "itemname": "Golden Lentil Bowl",
+              "itemdescription": "Turmeric rice, roasted squash, herbs, and lemon tahini.",
+              "price": "420.00",
+              "active": "1",
+              "itemallowvariation": "1",
+              "variation": [
+                {
+                  "variationid": "9001",
+                  "name": "Regular bowl",
+                  "price": "0.00",
+                  "active": "1"
+                },
+                {
+                  "variationid": "9002",
+                  "name": "Hearty bowl",
+                  "price": "90.00",
+                  "active": "1"
+                }
+              ],
+              "addon": [
+                {
+                  "addongroupid": "501",
+                  "addongroup_name": "Extras",
+                  "addonitem": [
+                    {
+                      "addonitemid": "8001",
+                      "addonitem_name": "Avocado slices",
+                      "addonitem_price": "70.00",
+                      "active": "1"
+                    },
+                    {
+                      "addonitemid": "8002",
+                      "addonitem_name": "Seed crisp",
+                      "addonitem_price": "40.00",
+                      "active": "1"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "itemid": "7778659",
+              "itemname": "Garden Greens Bowl",
+              "itemdescription": "Charred greens, avocado, citrus, and soft grains.",
+              "price": "440.00",
+              "active": "1",
+              "itemallowvariation": "0",
+              "variation": [],
+              "addon": []
+            }
+          ]
+        },
+        {
+          "categoryid": "102",
+          "categoryname": "Beverages",
+          "active": "1",
+          "items": [
+            {
+              "itemid": "7532306",
+              "itemname": "Citrus Cooler",
+              "itemdescription": "Fresh lime, mint, and chilled soda.",
+              "price": "180.00",
+              "active": "1",
+              "itemallowvariation": "0",
+              "variation": [],
+              "addon": []
+            }
+          ]
+        },
+        {
+          "categoryid": "103",
+          "categoryname": "Snacks",
+          "active": "1",
+          "items": [
+            {
+              "itemid": "7532307",
+              "itemname": "Herb Seed Crackers",
+              "itemdescription": "Crisp crackers with rosemary and sea salt.",
+              "price": "160.00",
+              "active": "1",
+              "itemallowvariation": "0",
+              "variation": [],
+              "addon": []
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

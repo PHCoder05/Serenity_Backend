@@ -1,0 +1,5 @@
+# Replace HOSTNAME via bootstrap.sh, or edit before `docker compose up`.
+{$SERENITY_HOSTNAME:localhost} {
+	encode gzip
+	reverse_proxy api:3000
+}
