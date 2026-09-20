@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { EventEntity } from '../infrastructure/persistence/relational/entities/event.entity';
 import { EventBookingEntity } from '../infrastructure/persistence/relational/entities/event-booking.entity';
 import {
@@ -58,6 +58,27 @@ export class EventsService {
   async getAvailability(id: string) {
     const event = await this.requireEvent(id);
     return this.computeAvailability(event);
+  }
+
+  async listMyBookings(userId: number) {
+    const bookings = await this.bookingRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+    const eventIds = [...new Set(bookings.map((booking) => booking.eventId))];
+    const events = eventIds.length
+      ? await this.eventRepository.find({ where: { id: In(eventIds) } })
+      : [];
+    const eventById = new Map(events.map((event) => [event.id, event]));
+
+    return {
+      data: bookings.map((booking) => ({
+        ...this.toBookingDto(booking),
+        event: eventById.has(booking.eventId)
+          ? this.toSummary(eventById.get(booking.eventId)!)
+          : null,
+      })),
+    };
   }
 
   async create(userId: number, dto: CreateEventDto) {

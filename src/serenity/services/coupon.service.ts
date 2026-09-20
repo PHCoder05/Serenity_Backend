@@ -44,10 +44,7 @@ export class CouponService {
     return {
       code,
       discountInr: discount,
-      label:
-        coupon!.type === 'percent'
-          ? `${coupon!.value}% off`
-          : `₹${coupon!.value} off`,
+      label: this.publicLabel(coupon!),
     };
   }
 
@@ -81,6 +78,28 @@ export class CouponService {
       order: { code: 'ASC' },
     });
     return rows.map((row) => this.toAdminDto(row));
+  }
+
+  async listAvailable() {
+    const now = Date.now();
+    const rows = await this.couponRepository.find({
+      where: { isActive: true },
+      order: { code: 'ASC' },
+    });
+
+    return {
+      data: rows
+        .filter((row) => this.isCurrentlyRedeemable(row, now))
+        .map((row) => ({
+          code: row.code,
+          type: row.type,
+          value: row.value,
+          minSubtotal: row.minSubtotal,
+          maxDiscount: row.maxDiscount,
+          label: this.publicLabel(row),
+          endsAt: row.endsAt?.toISOString() ?? null,
+        })),
+    };
   }
 
   async get(code: string) {
@@ -124,6 +143,28 @@ export class CouponService {
 
     const saved = await this.couponRepository.save(row);
     return this.toAdminDto(saved);
+  }
+
+  private isCurrentlyRedeemable(coupon: CouponEntity, now: number): boolean {
+    if (coupon.startsAt && coupon.startsAt.getTime() > now) {
+      return false;
+    }
+    if (coupon.endsAt && coupon.endsAt.getTime() < now) {
+      return false;
+    }
+    if (
+      coupon.maxRedemptions != null &&
+      coupon.redeemedCount >= coupon.maxRedemptions
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private publicLabel(coupon: CouponEntity): string {
+    return coupon.type === 'percent'
+      ? `${coupon.value}% off`
+      : `₹${coupon.value} off`;
   }
 
   computeDiscount(coupon: CouponEntity, subtotal: number): number {

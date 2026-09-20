@@ -39,6 +39,7 @@ import { AdminEventsController } from './controllers/admin-events.controller';
 import { AdminContentController } from './controllers/admin-content.controller';
 import { AdminSupportController } from './controllers/admin-support.controller';
 import { OutletsController } from './controllers/outlets.controller';
+import { CouponsController } from './controllers/coupons.controller';
 import { DiagnosticsController } from './controllers/diagnostics.controller';
 import { DiyController } from './controllers/diy.controller';
 import {
@@ -98,6 +99,7 @@ import { PaymentOutboxService } from './payments/outbox/payment-outbox.service';
     LoyaltyController,
     StoreController,
     OutletsController,
+    CouponsController,
     EventsController,
     PaymentsController,
     AdminPaymentsController,

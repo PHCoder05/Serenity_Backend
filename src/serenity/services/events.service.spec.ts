@@ -55,17 +55,20 @@ describe('EventsService', () => {
     );
 
     const eventRepository = {
-      find: jest.fn(),
+      find: jest.fn().mockResolvedValue([event]),
       findOne: jest.fn().mockResolvedValue(event),
       create: jest.fn((x) => x),
       save: jest.fn((x) => x),
     };
 
     const bookingRepository = {
-      find: jest.fn(({ where }: { where: { status?: string } }) =>
-        bookings.filter((b) =>
-          where.status ? b.status === where.status : true,
-        ),
+      find: jest.fn(
+        ({ where }: { where: { status?: string; userId?: number } }) =>
+          bookings.filter((b) => {
+            if (where.status && b.status !== where.status) return false;
+            if (where.userId != null && b.userId !== where.userId) return false;
+            return true;
+          }),
       ),
       findOne: jest.fn(({ where }: { where: Record<string, unknown> }) => {
         return (
@@ -230,6 +233,19 @@ describe('EventsService', () => {
     });
     const result = await service.confirmWaitlistedBooking('evt-1', 'ebk-w');
     expect(result.status).toBe('confirmed');
+  });
+
+  it('should lists bookings for the signed-in user with event summary', async () => {
+    const { service } = build({
+      bookings: [
+        { id: 'ebk-mine', userId: 7, bookingNumber: 'BK-7' },
+        { id: 'ebk-other', userId: 2, bookingNumber: 'BK-2' },
+      ],
+    });
+    const result = await service.listMyBookings(7);
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].bookingNumber).toBe('BK-7');
+    expect(result.data[0].event?.id).toBe('evt-1');
   });
 
   it('should computes availability excluding cancelled', async () => {

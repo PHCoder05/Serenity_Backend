@@ -26,6 +26,7 @@ describe('CouponService', () => {
 
     const repo = {
       findOne: jest.fn().mockResolvedValue(coupon),
+      find: jest.fn().mockResolvedValue(coupon ? [coupon] : []),
       createQueryBuilder: jest.fn(),
     };
 
@@ -75,6 +76,40 @@ describe('CouponService', () => {
     const { service } = buildService({ minSubtotal: 500 });
     await expect(service.apply('SERENITY10', 100)).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'COUPON_INVALID' }),
+    });
+  });
+
+  it('should lists only currently redeemable public coupons', async () => {
+    const expired = {
+      id: 2,
+      code: 'OLD',
+      type: 'flat' as const,
+      value: 10,
+      minSubtotal: 0,
+      maxDiscount: null,
+      startsAt: null,
+      endsAt: new Date('2020-01-01'),
+      maxRedemptions: null,
+      redeemedCount: 0,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as CouponEntity;
+    const { service, repo, coupon } = buildService();
+    repo.find.mockResolvedValue([coupon, expired]);
+
+    await expect(service.listAvailable()).resolves.toEqual({
+      data: [
+        {
+          code: 'SERENITY10',
+          type: 'percent',
+          value: 10,
+          minSubtotal: 0,
+          maxDiscount: 50,
+          label: '10% off',
+          endsAt: null,
+        },
+      ],
     });
   });
 
