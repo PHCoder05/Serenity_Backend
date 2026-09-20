@@ -320,7 +320,7 @@ export class CancelOrderDto {
 export class CreatePaymentIntentDto {
   @ApiPropertyOptional({
     description:
-      'Optional for online when `items` provided (server prices). Required for COD.',
+      'Required for COD and event deposits. Optional for cart checkout when `items` are sent (server prices).',
   })
   @IsOptional()
   @IsInt()

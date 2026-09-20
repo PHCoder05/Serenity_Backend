@@ -41,25 +41,26 @@ export class PaymentsService {
     let amount = dto.amount;
 
     if (dto.method !== 'COD') {
-      if (!dto.items?.length) {
+      if (dto.items?.length) {
+        const quote = await this.ordersService.quote(
+          {
+            items: dto.items,
+            couponCode: dto.couponCode,
+            redeemPoints: dto.redeemPoints,
+          },
+          userId,
+        );
+        amount = quote.total;
+        if (dto.amount != null && dto.amount !== amount) {
+          throw new BadRequestException({
+            message: `Client amount ${dto.amount} does not match server total ${amount}`,
+            code: 'PAYMENT_AMOUNT_MISMATCH',
+          });
+        }
+      } else if (amount == null || amount < 1) {
         throw new BadRequestException({
-          message: 'items are required to price online payment intents',
-          code: 'PAYMENT_ITEMS_REQUIRED',
-        });
-      }
-      const quote = await this.ordersService.quote(
-        {
-          items: dto.items,
-          couponCode: dto.couponCode,
-          redeemPoints: dto.redeemPoints,
-        },
-        userId,
-      );
-      amount = quote.total;
-      if (dto.amount != null && dto.amount !== amount) {
-        throw new BadRequestException({
-          message: `Client amount ${dto.amount} does not match server total ${amount}`,
-          code: 'PAYMENT_AMOUNT_MISMATCH',
+          message: 'items or amount are required for online payment intents',
+          code: 'PAYMENT_AMOUNT_REQUIRED',
         });
       }
     } else if (amount == null || amount < 1) {
