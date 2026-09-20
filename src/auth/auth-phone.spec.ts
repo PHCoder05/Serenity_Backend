@@ -118,4 +118,22 @@ describe('AuthService phone OTP', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(requested.devCode).toBeDefined();
   });
+
+  it('should exchanges a firebase token for a session', async () => {
+    const { service, usersService } = build();
+    jest.spyOn(service, 'lookupFirebasePhone').mockResolvedValue({
+      phone: '+919876543210',
+      name: 'Ada',
+    });
+
+    const login = await service.loginWithFirebaseIdToken('fake-id-token');
+    expect(login.token).toBe('tok');
+    expect(usersService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: AuthProvidersEnum.phone,
+        socialId: '9876543210',
+        firstName: 'Ada',
+      }),
+    );
+  });
 });

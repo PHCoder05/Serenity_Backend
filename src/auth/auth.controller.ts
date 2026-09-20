@@ -22,6 +22,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { AuthRegisterLoginDto } from './dto/auth-register-login.dto';
 import { AuthPhoneRequestDto } from './dto/auth-phone-request.dto';
 import { AuthPhoneVerifyDto } from './dto/auth-phone-verify.dto';
+import { AuthPhoneFirebaseDto } from './dto/auth-phone-firebase.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
 import { NullableType } from '../utils/types/nullable.type';
 import { User } from '../users/domain/user';
@@ -61,6 +62,17 @@ export class AuthController {
   })
   verifyPhoneOtp(@Body() dto: AuthPhoneVerifyDto): Promise<LoginResponseDto> {
     return this.service.verifyPhoneOtp(dto.phone, dto.code);
+  }
+
+  @Post('phone/firebase')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({
+    type: LoginResponseDto,
+  })
+  loginWithFirebase(
+    @Body() dto: AuthPhoneFirebaseDto,
+  ): Promise<LoginResponseDto> {
+    return this.service.loginWithFirebaseIdToken(dto.idToken);
   }
 
   @Post('email/register')

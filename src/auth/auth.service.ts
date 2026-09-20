@@ -3,9 +3,11 @@ import {
   HttpStatus,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import axios from 'axios';
 import { InjectRepository } from '@nestjs/typeorm';
 import ms from 'ms';
 import crypto from 'crypto';
@@ -153,6 +155,63 @@ export class AuthService {
 
     const user = await this.ensurePhoneUser(phone);
     return this.issueSession(user);
+  }
+
+  async loginWithFirebaseIdToken(idToken: string): Promise<LoginResponseDto> {
+    const account = await this.lookupFirebasePhone(idToken);
+    return this.issueSession(
+      await this.ensurePhoneUser(account.phone, account.name),
+    );
+  }
+
+  async lookupFirebasePhone(
+    idToken: string,
+  ): Promise<{ phone: string; name?: string }> {
+    const apiKey = process.env.FIREBASE_WEB_API_KEY?.trim();
+    if (!apiKey) {
+      throw new ServiceUnavailableException({
+        message: 'Firebase phone login is not configured on the API',
+        code: 'FIREBASE_NOT_CONFIGURED',
+      });
+    }
+
+    let response: {
+      data?: {
+        users?: Array<{
+          phoneNumber?: string;
+          displayName?: string;
+        }>;
+        error?: { message?: string };
+      };
+      status: number;
+    };
+    try {
+      response = await axios.post(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${apiKey}`,
+        { idToken },
+        { timeout: 10_000, validateStatus: () => true },
+      );
+    } catch {
+      throw new ServiceUnavailableException({
+        message: 'Could not reach Firebase to verify the ID token',
+        code: 'FIREBASE_UNAVAILABLE',
+      });
+    }
+
+    const phone = response.data?.users?.[0]?.phoneNumber;
+    if (response.status >= 400 || !phone) {
+      throw new BadRequestException({
+        message:
+          response.data?.error?.message ||
+          'Firebase token is invalid or has no phone number',
+        code: 'OTP_INVALID',
+      });
+    }
+
+    return {
+      phone,
+      name: response.data?.users?.[0]?.displayName,
+    };
   }
 
   async ensurePhoneUser(phoneRaw: string, name?: string): Promise<User> {

@@ -57,6 +57,10 @@ GOOGLE_CLIENT_SECRET=
 
 APPLE_APP_AUDIENCE=[]
 
+# Phone OTP — console logs the code; firebase requires FIREBASE_WEB_API_KEY
+AUTH_OTP_PROVIDER=console
+FIREBASE_WEB_API_KEY=
+
 WORKER_HOST=redis://redis:6379/1
 
 # PetPooja Integration
