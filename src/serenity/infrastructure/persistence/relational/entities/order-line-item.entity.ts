@@ -25,6 +25,12 @@ export class OrderLineItemEntity extends EntityRelationalHelper {
   @Column()
   title: string;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  menuItemId: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  detail: string | null;
+
   @Column({ type: 'int', default: 1 })
   quantity: number;
 

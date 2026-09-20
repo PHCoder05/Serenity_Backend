@@ -20,6 +20,8 @@ import { AuthResetPasswordDto } from './dto/auth-reset-password.dto';
 import { AuthUpdateDto } from './dto/auth-update.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthRegisterLoginDto } from './dto/auth-register-login.dto';
+import { AuthPhoneRequestDto } from './dto/auth-phone-request.dto';
+import { AuthPhoneVerifyDto } from './dto/auth-phone-verify.dto';
 import { LoginResponseDto } from './dto/login-response.dto';
 import { NullableType } from '../utils/types/nullable.type';
 import { User } from '../users/domain/user';
@@ -43,6 +45,22 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   public login(@Body() loginDto: AuthEmailLoginDto): Promise<LoginResponseDto> {
     return this.service.validateLogin(loginDto);
+  }
+
+  @Post('phone/request')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse()
+  requestPhoneOtp(@Body() dto: AuthPhoneRequestDto) {
+    return this.service.requestPhoneOtp(dto.phone);
+  }
+
+  @Post('phone/verify')
+  @HttpCode(HttpStatus.OK)
+  @ApiOkResponse({
+    type: LoginResponseDto,
+  })
+  verifyPhoneOtp(@Body() dto: AuthPhoneVerifyDto): Promise<LoginResponseDto> {
+    return this.service.verifyPhoneOtp(dto.phone, dto.code);
   }
 
   @Post('email/register')

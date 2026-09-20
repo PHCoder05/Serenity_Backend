@@ -6,6 +6,9 @@ export class StoreStatusEntity extends EntityRelationalHelper {
   @PrimaryColumn({ default: 1 })
   id: number;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  outletId: string | null;
+
   @Column({ default: true })
   isOpen: boolean;
 

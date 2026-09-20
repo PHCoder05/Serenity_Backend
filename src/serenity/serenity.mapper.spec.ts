@@ -10,6 +10,7 @@ function buildOrder(
     status: 'preparing',
     petpoojaOrderId: null,
     idempotencyKey: null,
+    idempotencyFingerprint: null,
     kitchenSyncStatus: 'submitted',
     cancelReason: null,
     foodRating: null,
@@ -26,6 +27,15 @@ function buildOrder(
     gst: 20,
     amountPaid: 320,
     paidVia: 'UPI',
+    paymentIntentId: null,
+    outletId: 'outlet-serenity-1',
+    loyaltyDiscount: 0,
+    loyaltyPointsRedeemed: 0,
+    guestTokenHash: null,
+    guestPhone: null,
+    isGuestCheckout: false,
+    riderName: null,
+    riderPhone: null,
     lineItems: [],
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -47,6 +57,16 @@ describe('serenity.mapper lifecycle projection', () => {
     ).toBe(true);
   });
 
+  it('should expose rider on order detail when present', () => {
+    const detail = toOrderDetailDto(
+      buildOrder({ riderName: 'Ravi', riderPhone: '9876543210' }),
+    );
+    expect(detail.rider).toEqual({
+      name: 'Ravi',
+      phone: '9876543210',
+    });
+  });
+
   it('should render cancel reason in lifecycle label', () => {
     const order = buildOrder({
       status: 'cancelled',
@@ -54,5 +74,26 @@ describe('serenity.mapper lifecycle projection', () => {
     });
     const detail = toOrderDetailDto(order);
     expect(detail.statusLabel).toContain('Kitchen unavailable');
+  });
+
+  it('should attach first-reached timestamps from history', () => {
+    const order = buildOrder({ status: 'preparing' });
+    const detail = toOrderDetailDto(order, [
+      {
+        toStatus: 'accepted',
+        createdAt: new Date('2026-01-01T10:05:00.000Z'),
+      },
+      {
+        toStatus: 'preparing',
+        createdAt: new Date('2026-01-01T10:10:00.000Z'),
+      },
+    ]);
+
+    expect(
+      detail.lifecycle?.timeline.find((step) => step.key === 'accepted')?.at,
+    ).toBe('2026-01-01T10:05:00.000Z');
+    expect(
+      detail.lifecycle?.timeline.find((step) => step.key === 'confirmed')?.at,
+    ).toBe('2026-01-01T10:00:00.000Z');
   });
 });

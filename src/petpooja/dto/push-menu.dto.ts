@@ -1,39 +1,28 @@
-import { IsString, IsArray, ValidateNested, IsOptional } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsString, IsArray, IsOptional, IsObject } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-class RestaurantDetailsDto {
-  @ApiPropertyOptional()
-  @IsString()
-  @IsOptional()
-  restaurantname?: string;
-  // Other properties can be added here based on full spec
-}
-
-class RestaurantDto {
-  @ApiProperty()
-  @IsString()
-  restaurantid: string;
-
-  @ApiProperty()
-  @IsString()
-  active: string;
-
-  @ApiPropertyOptional({ type: RestaurantDetailsDto })
-  @ValidateNested()
-  @Type(() => RestaurantDetailsDto)
-  @IsOptional()
-  details?: RestaurantDetailsDto;
-}
-
+/**
+ * PetPooja push-menu payloads are large and vary by account. Keep top-level
+ * shape validated, but preserve nested restaurant/category/item trees as
+ * opaque objects so ValidationPipe whitelist does not strip menu content.
+ */
 export class PushMenuDto {
   @ApiProperty()
   @IsString()
   success: string;
 
-  @ApiProperty({ type: [RestaurantDto] })
+  @ApiProperty({ type: 'array', items: { type: 'object' } })
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => RestaurantDto)
-  restaurants: RestaurantDto[];
+  @IsObject({ each: true })
+  restaurants: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: 'array', items: { type: 'object' } })
+  @IsOptional()
+  @IsArray()
+  items?: Record<string, unknown>[];
+
+  @ApiPropertyOptional({ type: 'array', items: { type: 'object' } })
+  @IsOptional()
+  @IsArray()
+  categories?: Record<string, unknown>[];
 }

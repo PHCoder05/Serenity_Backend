@@ -8,6 +8,7 @@ import { FetchMenuDto } from '../dto/fetch-menu.dto';
 import { UpdateOrderStatusDto } from '../dto/update-order-status.dto';
 import { UpdateRiderStatusDto } from '../dto/rider-status.dto';
 import { PetpoojaWebhookService } from './petpooja-webhook.service';
+import { withPetpoojaAuthBody } from '../utils/petpooja-api-auth';
 
 @Injectable()
 export class PetpoojaService {
@@ -19,15 +20,13 @@ export class PetpoojaService {
     private readonly webhookService: PetpoojaWebhookService,
   ) {}
 
-  private getAuthHeaders() {
+  private getAuthCredentials() {
     return {
-      'app-key': this.configService.get('petpooja.appKey', { infer: true }),
-      'app-secret': this.configService.get('petpooja.appSecret', {
-        infer: true,
-      }),
-      'access-token': this.configService.get('petpooja.accessToken', {
-        infer: true,
-      }),
+      appKey: this.configService.get('petpooja.appKey', { infer: true }) ?? '',
+      appSecret:
+        this.configService.get('petpooja.appSecret', { infer: true }) ?? '',
+      accessToken:
+        this.configService.get('petpooja.accessToken', { infer: true }) ?? '',
     };
   }
 
@@ -39,12 +38,13 @@ export class PetpoojaService {
     });
     try {
       const response = await firstValueFrom(
-        this.httpService.post(url as string, payload, {
-          headers: {
-            ...this.getAuthHeaders(),
-            'Content-Type': 'application/json',
+        this.httpService.post(
+          url as string,
+          withPetpoojaAuthBody(this.getAuthCredentials(), payload),
+          {
+            headers: { 'Content-Type': 'application/json' },
           },
-        }),
+        ),
       );
 
       await this.webhookService.persistOutboundOrder(payload, 'submitted');

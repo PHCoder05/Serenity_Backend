@@ -70,8 +70,11 @@ export function toOrderListItemDto(order: SerenityOrderEntity) {
   };
 }
 
-export function toOrderDetailDto(order: SerenityOrderEntity) {
-  const lifecycle = projectOrderLifecycle(order);
+export function toOrderDetailDto(
+  order: SerenityOrderEntity,
+  history: Array<{ toStatus: string; createdAt: Date }> = [],
+) {
+  const lifecycle = projectOrderLifecycle(order, history);
   return {
     id: order.id,
     orderedAt: formatOrderDate(order.orderedAt),
@@ -84,17 +87,29 @@ export function toOrderDetailDto(order: SerenityOrderEntity) {
       quantity: line.quantity,
       ingredients: line.ingredients,
       linePrice: line.linePrice,
+      menuItemId: line.menuItemId ?? undefined,
+      detail: line.detail ?? undefined,
     })),
     subtotal: order.subtotal,
     couponDiscount: order.couponDiscount,
     gst: order.gst,
+    loyaltyDiscount: order.loyaltyDiscount ?? 0,
+    loyaltyPointsRedeemed: order.loyaltyPointsRedeemed ?? 0,
     amountPaid: order.amountPaid,
     paidVia: order.paidVia,
     status: order.status,
     statusLabel: lifecycle.label,
     lifecycle,
     kitchenSyncStatus: order.kitchenSyncStatus,
+    outletId: order.outletId ?? null,
     cancelReason: order.cancelReason,
+    rider:
+      order.riderName || order.riderPhone
+        ? {
+            name: order.riderName ?? null,
+            phone: order.riderPhone ?? null,
+          }
+        : null,
     feedback: order.foodRating
       ? {
           foodRating: order.foodRating,
@@ -106,16 +121,28 @@ export function toOrderDetailDto(order: SerenityOrderEntity) {
   };
 }
 
-function projectOrderLifecycle(order: SerenityOrderEntity) {
+function projectOrderLifecycle(
+  order: SerenityOrderEntity,
+  history: Array<{ toStatus: string; createdAt: Date }> = [],
+) {
   const baseTimeline = [
     { key: 'confirmed', label: 'Order Confirmed' },
     { key: 'accepted', label: 'Accepted by Kitchen' },
     { key: 'preparing', label: 'Preparing' },
+    { key: 'ready', label: 'Ready' },
     { key: 'dispatched', label: 'Dispatched' },
     { key: 'delivered', label: 'Delivered' },
   ];
   const code = order.status;
   const currentIndex = baseTimeline.findIndex((step) => step.key === code);
+
+  const firstAt = new Map<string, string>();
+  firstAt.set('confirmed', order.orderedAt.toISOString());
+  for (const row of history) {
+    if (!firstAt.has(row.toStatus)) {
+      firstAt.set(row.toStatus, row.createdAt.toISOString());
+    }
+  }
 
   return {
     code,
@@ -128,6 +155,7 @@ function projectOrderLifecycle(order: SerenityOrderEntity) {
       ...step,
       done: currentIndex >= index,
       current: currentIndex === index,
+      at: firstAt.get(step.key) ?? null,
     })),
   };
 }
@@ -160,7 +188,7 @@ export function toLoyaltyActivityDto(tx: LoyaltyTransactionEntity) {
     id: String(tx.id),
     label: tx.label,
     date: formatRelativeDate(tx.createdAt),
-    pointsLabel: `+${tx.points} pts`,
+    pointsLabel: `${tx.points >= 0 ? '+' : ''}${tx.points} pts`,
   };
 }
 

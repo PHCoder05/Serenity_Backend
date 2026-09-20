@@ -1,4 +1,4 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PushMenuDto } from '../dto/push-menu.dto';
 import { OrderCallbackDto } from '../dto/order-callback.dto';
 import { ItemStockDto, ItemStockOffDto } from '../dto/item-stock.dto';
@@ -13,6 +13,8 @@ import { PetpoojaSerenityOrderService } from './petpooja-serenity-order.service'
 
 @Injectable()
 export class PetpoojaWebhookService {
+  private readonly logger = new Logger(PetpoojaWebhookService.name);
+
   constructor(
     private readonly petpoojaRepository: PetpoojaRepository,
     @Optional()
@@ -23,15 +25,28 @@ export class PetpoojaWebhookService {
 
   async pushMenu(dto: PushMenuDto) {
     for (const restaurant of dto.restaurants) {
+      const restId = String(restaurant.restaurantid ?? '');
+      if (!restId) {
+        continue;
+      }
+
+      const details =
+        restaurant.details && typeof restaurant.details === 'object'
+          ? (restaurant.details as Record<string, unknown>)
+          : undefined;
+
       await this.petpoojaRepository.upsertRestaurant({
-        restId: restaurant.restaurantid,
-        name: restaurant.details?.restaurantname ?? null,
-        active: restaurant.active,
+        restId,
+        name:
+          typeof details?.restaurantname === 'string'
+            ? details.restaurantname
+            : null,
+        active: String(restaurant.active ?? '1'),
         storeStatus: '1',
       });
 
       await this.petpoojaRepository.saveMenuSnapshot(
-        restaurant.restaurantid,
+        restId,
         dto as unknown as Record<string, unknown>,
         'push',
       );
@@ -51,6 +66,7 @@ export class PetpoojaWebhookService {
     await this.petpoojaRepository.upsertOrder({
       restId: dto.restID,
       orderId: dto.orderID,
+      clientOrderId: dto.orderID,
       status: dto.status,
       cancelReason: dto.cancel_reason ?? null,
       minimumPrepTime: dto.minimum_prep_time ?? null,
@@ -77,7 +93,16 @@ export class PetpoojaWebhookService {
       })),
     );
 
-    await this.menuSyncService?.updateStockByPetpoojaIds(dto.itemID, true);
+    const affected =
+      (await this.menuSyncService?.updateStockByPetpoojaIds(
+        dto.itemID,
+        true,
+      )) ?? 0;
+    if (affected === 0) {
+      this.logger.warn(
+        `item_stock matched 0 menu rows for petpooja ids=${dto.itemID.join(',')}`,
+      );
+    }
 
     return {
       code: 200,
@@ -98,7 +123,16 @@ export class PetpoojaWebhookService {
       })),
     );
 
-    await this.menuSyncService?.updateStockByPetpoojaIds(dto.itemID, false);
+    const affected =
+      (await this.menuSyncService?.updateStockByPetpoojaIds(
+        dto.itemID,
+        false,
+      )) ?? 0;
+    if (affected === 0) {
+      this.logger.warn(
+        `item_stock_off matched 0 menu rows for petpooja ids=${dto.itemID.join(',')}`,
+      );
+    }
 
     return {
       code: 200,
@@ -163,14 +197,23 @@ export class PetpoojaWebhookService {
           clientOrderID?: string;
         };
       };
+      OrderInfo?: {
+        Order?: {
+          details?: {
+            orderID?: string;
+            clientOrderID?: string;
+          };
+        };
+      };
     };
 
-    const details = info.Order?.details;
+    const details =
+      info.OrderInfo?.Order?.details ?? info.Order?.details ?? undefined;
     const orderId = details?.orderID ?? details?.clientOrderID ?? 'unknown';
 
     return {
       orderId,
-      clientOrderId: details?.clientOrderID ?? null,
+      clientOrderId: details?.orderID ?? details?.clientOrderID ?? null,
     };
   }
 }

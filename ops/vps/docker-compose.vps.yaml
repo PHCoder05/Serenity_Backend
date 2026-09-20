@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:17.9-alpine
+    restart: unless-stopped
+    volumes:
+      - serenity-pg:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-root}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-secret}
+      POSTGRES_DB: ${DATABASE_NAME:-api}
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ../../
+      dockerfile: ops/docker/images/relational.dev.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../../.env
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      APP_PORT: ${APP_PORT:-3000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - '${APP_PORT:-3000}'
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+
+volumes:
+  serenity-pg:
+  caddy-data:
+  caddy-config:

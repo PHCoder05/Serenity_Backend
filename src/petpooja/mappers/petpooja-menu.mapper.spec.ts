@@ -72,4 +72,72 @@ describe('PetpoojaMenuMapper', () => {
       basePrice: 120,
     });
   });
+
+  it('should map fetch-menu payloads with root-level items and categories', () => {
+    const items = mapPetpoojaMenuPayload({
+      success: '1',
+      restaurants: [{ restaurantid: 'hbmp8vufrd', active: '1' }],
+      categories: [
+        { categoryid: '88376', categoryname: 'Sizzling', active: '1' },
+        { categoryid: '88378', categoryname: 'Starters', active: '1' },
+      ],
+      items: [
+        {
+          itemid: '5079',
+          itemname: 'Veg Mocha Special Sizzling',
+          itemdescription: 'Hot sizzling plate',
+          price: '189.00',
+          item_categoryid: '88376',
+          active: '1',
+          variation: [],
+          addon: [],
+        },
+        {
+          itemid: '5041',
+          itemname: 'French Fries',
+          itemdescription: 'Crispy fries',
+          price: '0',
+          item_categoryid: '88378',
+          active: '1',
+          itemallowvariation: '1',
+          variation: [
+            {
+              variationid: '13842',
+              name: 'Half',
+              price: '59.00',
+              active: '1',
+            },
+            {
+              variationid: '13843',
+              name: 'Full',
+              price: '99.00',
+              active: '1',
+            },
+          ],
+          addon: [],
+        },
+      ],
+    });
+
+    expect(items).toHaveLength(2);
+
+    const sizzling = items.find((item) => item.petpoojaItemId === '5079');
+    expect(sizzling).toMatchObject({
+      name: 'Veg Mocha Special Sizzling',
+      category: 'Meals',
+      basePrice: 189,
+      petpoojaItemId: '5079',
+    });
+
+    const fries = items.find((item) => item.petpoojaItemId === '5041');
+    expect(fries).toMatchObject({
+      name: 'French Fries',
+      category: 'Sides/Snacks',
+      isCustomizable: true,
+    });
+    expect(fries?.variants).toEqual([
+      { id: 'v-13842', label: 'Half', priceDelta: 59 },
+      { id: 'v-13843', label: 'Full', priceDelta: 99 },
+    ]);
+  });
 });

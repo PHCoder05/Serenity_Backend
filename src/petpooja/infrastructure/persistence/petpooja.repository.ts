@@ -49,4 +49,8 @@ export abstract class PetpoojaRepository {
   abstract upsertItemStock(records: PetpoojaItemStockRecord[]): Promise<void>;
 
   abstract upsertOrder(data: PetpoojaOrderRecord): Promise<PetpoojaOrderRecord>;
+
+  abstract findOrderByExternalId(
+    orderId: string,
+  ): Promise<NullableType<PetpoojaOrderRecord>>;
 }

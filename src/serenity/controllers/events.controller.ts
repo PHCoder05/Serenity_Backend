@@ -10,6 +10,9 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { Roles } from '../../roles/roles.decorator';
+import { RoleEnum } from '../../roles/roles.enum';
+import { RolesGuard } from '../../roles/roles.guard';
 import { EventsService } from '../services';
 import { CreateEventBookingDto, CreateEventDto } from '../dto/serenity.dto';
 
@@ -26,6 +29,12 @@ export class EventsController {
     @Query('q') q?: string,
   ) {
     return this.eventsService.findAll({ audience, status, q });
+  }
+
+  @Get(':id/availability')
+  @ApiOkResponse()
+  getAvailability(@Param('id') id: string) {
+    return this.eventsService.getAvailability(id);
   }
 
   @Get(':id')
@@ -52,5 +61,29 @@ export class EventsController {
     @Body() dto: CreateEventBookingDto,
   ) {
     return this.eventsService.createBooking(request.user.id, id, dto);
+  }
+
+  @Post(':id/bookings/:bookingId/cancel')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOkResponse()
+  cancelBooking(
+    @Request() request,
+    @Param('id') id: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.eventsService.cancelBooking(request.user.id, id, bookingId);
+  }
+
+  @Post(':id/bookings/:bookingId/confirm')
+  @ApiBearerAuth()
+  @Roles(RoleEnum.admin)
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @ApiOkResponse()
+  confirmBooking(
+    @Param('id') id: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.eventsService.confirmWaitlistedBooking(id, bookingId);
   }
 }

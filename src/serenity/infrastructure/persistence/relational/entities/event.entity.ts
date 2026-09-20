@@ -50,6 +50,12 @@ export class EventEntity extends EntityRelationalHelper {
   @Column({ type: 'int', default: 100 })
   maxGuests: number;
 
+  @Column({ type: 'int', default: 0 })
+  depositAmountInr: number;
+
+  @Column({ type: 'boolean', default: true })
+  waitlistEnabled: boolean;
+
   @Column({ type: 'timestamp', nullable: true })
   registrationOpenAt: Date | null;
 

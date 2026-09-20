@@ -93,6 +93,23 @@ export class PetpoojaDocumentRepository implements PetpoojaRepository {
     }
   }
 
+  async findOrderByExternalId(
+    orderId: string,
+  ): Promise<NullableType<PetpoojaOrderRecord>> {
+    if (!orderId?.trim()) {
+      return null;
+    }
+
+    const entity =
+      (await this.orderModel.findOne({ orderId }).sort({ _id: -1 }).exec()) ??
+      (await this.orderModel
+        .findOne({ clientOrderId: orderId })
+        .sort({ _id: -1 })
+        .exec());
+
+    return entity ? this.toOrderRecord(entity) : null;
+  }
+
   async upsertOrder(data: PetpoojaOrderRecord): Promise<PetpoojaOrderRecord> {
     const entity = await this.orderModel.findOneAndUpdate(
       { restId: data.restId, orderId: data.orderId },

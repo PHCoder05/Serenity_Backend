@@ -99,19 +99,59 @@ export class PetpoojaRelationalRepository implements PetpoojaRepository {
     }
   }
 
+  async findOrderByExternalId(
+    orderId: string,
+  ): Promise<NullableType<PetpoojaOrderRecord>> {
+    if (!orderId?.trim()) {
+      return null;
+    }
+
+    const entity =
+      (await this.orderRepository.findOne({
+        where: { orderId },
+        order: { id: 'DESC' },
+      })) ??
+      (await this.orderRepository.findOne({
+        where: { clientOrderId: orderId },
+        order: { id: 'DESC' },
+      }));
+
+    return entity ? this.toOrderRecord(entity) : null;
+  }
+
   async upsertOrder(data: PetpoojaOrderRecord): Promise<PetpoojaOrderRecord> {
+    const orderKey =
+      data.orderId && data.orderId.trim() !== ''
+        ? data.orderId
+        : (data.clientOrderId ?? data.orderId);
+
     let entity = await this.orderRepository.findOne({
       where: {
         restId: data.restId,
-        orderId: data.orderId,
+        orderId: orderKey,
       },
     });
+
+    if (!entity && data.clientOrderId) {
+      entity = await this.orderRepository.findOne({
+        where: {
+          restId: data.restId,
+          clientOrderId: data.clientOrderId,
+        },
+      });
+    }
 
     if (!entity) {
       entity = this.orderRepository.create({
         restId: data.restId,
-        orderId: data.orderId,
+        orderId: orderKey,
       });
+    } else if (
+      data.orderId &&
+      data.orderId.trim() !== '' &&
+      entity.orderId !== data.orderId
+    ) {
+      entity.orderId = data.orderId;
     }
 
     entity.clientOrderId = data.clientOrderId ?? entity.clientOrderId;

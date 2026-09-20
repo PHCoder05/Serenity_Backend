@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { StoreService } from '../services';
 
@@ -9,7 +9,7 @@ export class StoreController {
 
   @Get('status')
   @ApiOkResponse()
-  getStatus() {
-    return this.storeService.getStatus();
+  getStatus(@Query('outletId') outletId?: string) {
+    return this.storeService.getStatus(outletId);
   }
 }

@@ -20,6 +20,9 @@ export class LoyaltyTransactionEntity extends EntityRelationalHelper {
   @Column({ type: 'int' })
   points: number;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  orderId: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

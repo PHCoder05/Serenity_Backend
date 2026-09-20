@@ -45,6 +45,12 @@ export class EventBookingEntity extends EntityRelationalHelper {
   @Column({ type: 'int', default: 1 })
   guestCount: number;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  paymentIntentId: string | null;
+
+  @Column({ type: 'int', default: 0 })
+  depositPaid: number;
+
   @Column({ type: 'text', nullable: true })
   note: string | null;
 

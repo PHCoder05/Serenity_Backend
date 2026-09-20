@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
+import { AllConfigType } from '../../config/config.type';
 import { MenuItemEntity } from '../infrastructure/persistence/relational/entities/menu-item.entity';
 import { StoreStatusEntity } from '../infrastructure/persistence/relational/entities/store-status.entity';
 import { SerenityOrderEntity } from '../infrastructure/persistence/relational/entities/serenity-order.entity';
@@ -9,6 +11,7 @@ import {
   RECENT_ORDER_MENU_IDS,
 } from '../../database/seeds/relational/serenity/serenity-seed.data';
 import { getMenuMeta, toMenuItemDto } from '../mappers';
+import { ContentService } from './content.service';
 
 @Injectable()
 export class MenuService {
@@ -19,6 +22,8 @@ export class MenuService {
     private readonly storeRepository: Repository<StoreStatusEntity>,
     @InjectRepository(SerenityOrderEntity)
     private readonly orderRepository: Repository<SerenityOrderEntity>,
+    private readonly contentService: ContentService,
+    private readonly configService: ConfigService<AllConfigType>,
   ) {}
 
   async findAll(query: {
@@ -46,10 +51,16 @@ export class MenuService {
     });
 
     const store = await this.getStoreMeta();
+    const homeMoods = await this.contentService.listMoods(false);
 
     return {
       items: filtered.map(toMenuItemDto),
       ...getMenuMeta(),
+      homeMoods: homeMoods.map((mood) => ({
+        id: mood.id,
+        label: mood.label,
+        body: mood.body,
+      })),
       meta: store,
     };
   }
@@ -65,8 +76,9 @@ export class MenuService {
   async getHome(userId?: number) {
     const allItems = await this.menuRepository.find();
     const byId = new Map(allItems.map((item) => [item.id, item]));
+    const useLive = await this.shouldUseLiveMenu(allItems);
 
-    let recentIds = [...RECENT_ORDER_MENU_IDS];
+    let recentIds: string[] = [...RECENT_ORDER_MENU_IDS];
     if (userId) {
       const orders = await this.orderRepository.find({
         where: { userId },
@@ -74,9 +86,20 @@ export class MenuService {
         take: 4,
       });
       if (orders.length) {
-        recentIds = orders
-          .map((order) => order.itemSummary.split(' ')[0]?.toLowerCase())
-          .filter(Boolean) as typeof recentIds;
+        const fromOrders = orders
+          .flatMap((order) =>
+            (order.lineItems ?? [])
+              .map((line) => line.menuItemId)
+              .filter((id): id is string => Boolean(id)),
+          )
+          .slice(0, 4);
+        if (fromOrders.length) {
+          recentIds = fromOrders;
+        } else {
+          recentIds = orders
+            .map((order) => order.itemSummary.split(' ')[0]?.toLowerCase())
+            .filter((id): id is string => Boolean(id));
+        }
       }
     }
 
@@ -85,27 +108,66 @@ export class MenuService {
       .filter((item): item is MenuItemEntity => Boolean(item))
       .map(toMenuItemDto);
 
-    const featured = FEATURED_MENU_IDS.map((id) => byId.get(id))
-      .filter((item): item is MenuItemEntity => Boolean(item))
-      .map(toMenuItemDto);
+    const livePool = allItems
+      .filter((item) => item.petpoojaItemId && item.inStock)
+      .slice(0, 8);
 
-    const recommendations = [...RECENT_ORDER_MENU_IDS]
-      .map((id) => byId.get(id))
-      .filter((item): item is MenuItemEntity => Boolean(item))
-      .map(toMenuItemDto);
+    const featured = useLive
+      ? livePool.slice(0, 4).map(toMenuItemDto)
+      : FEATURED_MENU_IDS.map((id) => byId.get(id))
+          .filter((item): item is MenuItemEntity => Boolean(item))
+          .map(toMenuItemDto);
 
-    const mealItems = allItems
-      .filter((item) => item.category === 'Meals')
-      .slice(0, 4)
-      .map(toMenuItemDto);
+    const recommendations = useLive
+      ? livePool.slice(0, 4).map(toMenuItemDto)
+      : [...RECENT_ORDER_MENU_IDS]
+          .map((id) => byId.get(id))
+          .filter((item): item is MenuItemEntity => Boolean(item))
+          .map(toMenuItemDto);
+
+    const mealItems = (
+      useLive
+        ? livePool.filter((item) => item.category === 'Meals').slice(0, 4)
+        : allItems.filter((item) => item.category === 'Meals').slice(0, 4)
+    ).map(toMenuItemDto);
 
     return {
       recentOrders,
       featured,
       recommendations,
-      mealItems,
-      moods: getMenuMeta().homeMoods,
+      mealItems:
+        mealItems.length > 0
+          ? mealItems
+          : allItems
+              .filter((item) => item.category === 'Meals')
+              .slice(0, 4)
+              .map(toMenuItemDto),
+      moods: (await this.contentService.listMoods(false)).map((mood) => ({
+        id: mood.id,
+        label: mood.label,
+        body: mood.body,
+      })),
+      menuSource: useLive ? 'petpooja' : 'seed',
     };
+  }
+
+  private async shouldUseLiveMenu(
+    allItems: MenuItemEntity[],
+  ): Promise<boolean> {
+    const mode =
+      this.configService.get('serenity.menuSource', { infer: true }) ?? 'auto';
+    if (mode === 'seed') {
+      return false;
+    }
+    if (mode === 'petpooja') {
+      return true;
+    }
+    const liveCount =
+      allItems.filter((item) => Boolean(item.petpoojaItemId)).length ||
+      (await this.menuRepository.count({
+        where: { petpoojaItemId: Not(IsNull()) },
+      }));
+    return liveCount > 0;
   }
 
   private async getStoreMeta() {

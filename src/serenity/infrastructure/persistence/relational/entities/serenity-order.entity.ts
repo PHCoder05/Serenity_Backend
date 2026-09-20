@@ -26,6 +26,9 @@ export class SerenityOrderEntity extends EntityRelationalHelper {
   @Column({ type: 'varchar', length: 128, nullable: true })
   idempotencyKey: string | null;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  idempotencyFingerprint: string | null;
+
   @Column({ length: 32, default: 'pending' })
   kitchenSyncStatus: string;
 
@@ -68,11 +71,38 @@ export class SerenityOrderEntity extends EntityRelationalHelper {
   @Column({ type: 'int', default: 0 })
   gst: number;
 
+  @Column({ type: 'int', default: 0 })
+  loyaltyDiscount: number;
+
+  @Column({ type: 'int', default: 0 })
+  loyaltyPointsRedeemed: number;
+
   @Column({ type: 'int' })
   amountPaid: number;
 
   @Column({ length: 32, default: 'UPI' })
   paidVia: string;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  paymentIntentId: string | null;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  outletId: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  guestTokenHash: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  guestPhone: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  isGuestCheckout: boolean;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  riderName: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  riderPhone: string | null;
 
   @OneToMany(() => OrderLineItemEntity, (item) => item.order, {
     cascade: true,

@@ -43,6 +43,18 @@ class EnvironmentVariablesValidator {
   @IsString()
   @IsOptional()
   PETPOOJA_MENU_SYNC_ENABLED: string;
+
+  @IsUrl({ require_tld: false })
+  @IsOptional()
+  PETPOOJA_CALLBACK_URL: string;
+
+  @IsString()
+  @IsOptional()
+  PETPOOJA_CGST_TAX_ID: string;
+
+  @IsString()
+  @IsOptional()
+  PETPOOJA_SGST_TAX_ID: string;
 }
 
 export default registerAs<PetpoojaConfig>('petpooja', () => {
@@ -67,5 +79,8 @@ export default registerAs<PetpoojaConfig>('petpooja', () => {
       'https://qle1yy2ydc.execute-api.ap-southeast-1.amazonaws.com/V1/rider_status_update',
     orderSyncEnabled: process.env.PETPOOJA_ORDER_SYNC_ENABLED !== 'false',
     menuSyncEnabled: process.env.PETPOOJA_MENU_SYNC_ENABLED !== 'false',
+    callbackUrl: process.env.PETPOOJA_CALLBACK_URL || '',
+    cgstTaxId: process.env.PETPOOJA_CGST_TAX_ID || '3661',
+    sgstTaxId: process.env.PETPOOJA_SGST_TAX_ID || '3662',
   };
 });

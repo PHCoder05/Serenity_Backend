@@ -8,12 +8,15 @@ import { MenuItemEntity } from '../serenity/infrastructure/persistence/relationa
 import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
 import { StoreStatusEntity } from '../serenity/infrastructure/persistence/relational/entities/store-status.entity';
 import { UserProfileEntity } from '../serenity/infrastructure/persistence/relational/entities/user-profile.entity';
+import { OrderStatusHistoryEntity } from '../serenity/infrastructure/persistence/relational/entities/order-status-history.entity';
+import { OutletEntity } from '../serenity/infrastructure/persistence/relational/entities/outlet.entity';
 import { UserEntity } from '../users/infrastructure/persistence/relational/entities/user.entity';
 import { PetpoojaService } from './services/petpooja.service';
 import { PetpoojaWebhookService } from './services/petpooja-webhook.service';
 import { PetpoojaMenuSyncService } from './services/petpooja-menu-sync.service';
 import { PetpoojaOrderOutboundService } from './services/petpooja-order-outbound.service';
 import { PetpoojaSerenityOrderService } from './services/petpooja-serenity-order.service';
+import { PetpoojaWebhookHostService } from './services/petpooja-webhook-host.service';
 import { PetpoojaWebhookController } from './controllers/petpooja-webhook.controller';
 import { PetpoojaOutboundController } from './controllers/petpooja-outbound.controller';
 import { PetpoojaAuthGuard } from './guards/petpooja-auth.guard';
@@ -35,6 +38,8 @@ const relationalEntities = [
   StoreStatusEntity,
   UserEntity,
   UserProfileEntity,
+  OrderStatusHistoryEntity,
+  OutletEntity,
 ];
 
 const serenityBridgeImports = isRelationalDatabase
@@ -61,6 +66,7 @@ const serenityBridgeProviders = isRelationalDatabase
   providers: [
     PetpoojaService,
     PetpoojaWebhookService,
+    PetpoojaWebhookHostService,
     ...serenityBridgeProviders,
     PetpoojaAuthGuard,
   ],

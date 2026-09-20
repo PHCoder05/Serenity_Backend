@@ -15,7 +15,13 @@ import { ResolvePromisesInterceptor } from './utils/serializer.interceptor';
 import { randomUUID } from 'crypto';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { cors: true });
+  const app = await NestFactory.create(AppModule, {
+    cors: true,
+    rawBody: true,
+  });
+  // Ensure browser tools (portal explorer) can fetch OpenAPI JSON cross-origin.
+  // Nest `cors: true` covers /api/*; Swagger /docs-json needs the same headers.
+  app.enableCors({ origin: true });
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
   const configService = app.get(ConfigService<AllConfigType>);
 
@@ -35,6 +41,15 @@ async function bootstrap() {
       req.headers['x-correlation-id']?.toString() ?? randomUUID();
     req.correlationId = correlationId;
     res.setHeader('x-correlation-id', correlationId);
+    next();
+  });
+  // Swagger JSON historically omitted CORS ACAO in this stack — force it for portal.
+  app.use('/docs-json', (_req: any, res: any, next: () => void) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    next();
+  });
+  app.use('/docs', (_req: any, res: any, next: () => void) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
     next();
   });
   app.useGlobalInterceptors(

@@ -45,6 +45,22 @@ const CATEGORY_MOODS: Record<string, string[]> = {
 export function mapPetpoojaMenuPayload(
   payload: PetpoojaMenuPayload,
 ): MappedPetpoojaMenuItem[] {
+  const byPetpoojaId = new Map<string, MappedPetpoojaMenuItem>();
+
+  for (const item of mapRestaurantMenuItems(payload)) {
+    byPetpoojaId.set(item.petpoojaItemId, item);
+  }
+
+  for (const item of mapRootLevelMenuItems(payload)) {
+    byPetpoojaId.set(item.petpoojaItemId, item);
+  }
+
+  return [...byPetpoojaId.values()];
+}
+
+function mapRestaurantMenuItems(
+  payload: PetpoojaMenuPayload,
+): MappedPetpoojaMenuItem[] {
   const restaurants = asArray(payload.restaurants);
   const mapped: MappedPetpoojaMenuItem[] = [];
 
@@ -67,6 +83,73 @@ export function mapPetpoojaMenuPayload(
   }
 
   return mapped;
+}
+
+function mapRootLevelMenuItems(
+  payload: PetpoojaMenuPayload,
+): MappedPetpoojaMenuItem[] {
+  const rootItems = asArray(payload.items);
+  if (!rootItems.length) {
+    return [];
+  }
+
+  const categoryLookup = buildCategoryLookup(payload);
+  const mapped: MappedPetpoojaMenuItem[] = [];
+
+  for (const item of rootItems) {
+    const categoryId = readString(item, [
+      'item_categoryid',
+      'categoryid',
+      'category_id',
+    ]);
+    const categoryName =
+      (categoryId ? categoryLookup.get(categoryId) : null) ??
+      readString(item, ['categoryname', 'category_name']) ??
+      'Meals';
+    const mappedItem = mapItem(item, mapSerenityCategory(categoryName));
+
+    if (mappedItem) {
+      mapped.push(mappedItem);
+    }
+  }
+
+  return mapped;
+}
+
+function buildCategoryLookup(
+  payload: PetpoojaMenuPayload,
+): Map<string, string> {
+  const lookup = new Map<string, string>();
+
+  for (const category of asArray(payload.categories)) {
+    const categoryId = readString(category, [
+      'categoryid',
+      'category_id',
+      'id',
+    ]);
+    const categoryName = readString(category, ['categoryname', 'name']);
+
+    if (categoryId && categoryName) {
+      lookup.set(categoryId, categoryName);
+    }
+  }
+
+  for (const restaurant of asArray(payload.restaurants)) {
+    for (const category of asArray(restaurant.categories)) {
+      const categoryId = readString(category, [
+        'categoryid',
+        'category_id',
+        'id',
+      ]);
+      const categoryName = readString(category, ['categoryname', 'name']);
+
+      if (categoryId && categoryName) {
+        lookup.set(categoryId, categoryName);
+      }
+    }
+  }
+
+  return lookup;
 }
 
 function extractCategories(restaurant: Record<string, unknown>) {

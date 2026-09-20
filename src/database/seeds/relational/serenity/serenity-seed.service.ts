@@ -6,6 +6,7 @@ import { RoleEnum } from '../../../../roles/roles.enum';
 import { StatusEnum } from '../../../../statuses/statuses.enum';
 import { UserEntity } from '../../../../users/infrastructure/persistence/relational/entities/user.entity';
 import { DietPreferenceEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/diet-preference.entity';
+import { EventEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/event.entity';
 import { LoyaltyTransactionEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/loyalty-transaction.entity';
 import { MenuItemEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/menu-item.entity';
 import { OrderLineItemEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/order-line-item.entity';
@@ -13,12 +14,17 @@ import { SavedBowlEntity } from '../../../../serenity/infrastructure/persistence
 import { SerenityOrderEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
 import { StoreStatusEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/store-status.entity';
 import { UserProfileEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/user-profile.entity';
+import { CouponEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/coupon.entity';
+import { OutletEntity } from '../../../../serenity/infrastructure/persistence/relational/entities/outlet.entity';
 import {
   DEMO_USER_EMAIL,
   DEMO_USER_PASSWORD,
   DIET_PREFERENCES_SEED,
+  EVENTS_SEED,
   MENU_ITEMS_SEED,
 } from './serenity-seed.data';
+
+const DEFAULT_OUTLET_ID = 'outlet-serenity-1';
 
 @Injectable()
 export class SerenitySeedService {
@@ -41,12 +47,21 @@ export class SerenitySeedService {
     private readonly savedBowlRepository: Repository<SavedBowlEntity>,
     @InjectRepository(LoyaltyTransactionEntity)
     private readonly loyaltyRepository: Repository<LoyaltyTransactionEntity>,
+    @InjectRepository(EventEntity)
+    private readonly eventRepository: Repository<EventEntity>,
+    @InjectRepository(CouponEntity)
+    private readonly couponRepository: Repository<CouponEntity>,
+    @InjectRepository(OutletEntity)
+    private readonly outletRepository: Repository<OutletEntity>,
   ) {}
 
   async run() {
+    await this.seedOutlet();
     await this.seedMenu();
     await this.seedDietPreferences();
     await this.seedStoreStatus();
+    await this.seedEvents();
+    await this.seedCoupons();
     const demoUser = await this.seedDemoUser();
     if (demoUser) {
       await this.seedProfile(demoUser.id);
@@ -54,6 +69,27 @@ export class SerenitySeedService {
       await this.seedSavedBowls(demoUser.id);
       await this.seedLoyalty(demoUser.id);
     }
+  }
+
+  private async seedCoupons() {
+    const existing = await this.couponRepository.findOne({
+      where: { code: 'SERENITY10' },
+    });
+    if (existing) {
+      return;
+    }
+    await this.couponRepository.save(
+      this.couponRepository.create({
+        code: 'SERENITY10',
+        type: 'percent',
+        value: 10,
+        minSubtotal: 0,
+        maxDiscount: 100,
+        maxRedemptions: null,
+        redeemedCount: 0,
+        isActive: true,
+      }),
+    );
   }
 
   private async seedMenu() {
@@ -87,16 +123,66 @@ export class SerenitySeedService {
     );
   }
 
+  private async seedOutlet() {
+    const existing = await this.outletRepository.findOne({
+      where: { id: DEFAULT_OUTLET_ID },
+    });
+    if (existing) {
+      if (!existing.petpoojaRestId && process.env.PETPOOJA_RESTAURANT_ID) {
+        existing.petpoojaRestId = process.env.PETPOOJA_RESTAURANT_ID;
+        await this.outletRepository.save(existing);
+      }
+      return;
+    }
+
+    await this.outletRepository.save(
+      this.outletRepository.create({
+        id: DEFAULT_OUTLET_ID,
+        slug: 'serenity-demo',
+        name: 'Serenity Demo',
+        address: 'Serenity Kitchen',
+        petpoojaRestId: process.env.PETPOOJA_RESTAURANT_ID || null,
+        isActive: true,
+        isDefault: true,
+      }),
+    );
+  }
+
   private async seedStoreStatus() {
     const existing = await this.storeRepository.findOne({ where: { id: 1 } });
-    if (existing) return;
+    if (existing) {
+      if (!existing.outletId) {
+        existing.outletId = DEFAULT_OUTLET_ID;
+        await this.storeRepository.save(existing);
+      }
+      return;
+    }
 
     await this.storeRepository.save(
       this.storeRepository.create({
         id: 1,
+        outletId: DEFAULT_OUTLET_ID,
         isOpen: true,
         message: null,
       }),
+    );
+  }
+
+  private async seedEvents() {
+    const count = await this.eventRepository.count();
+    if (count > 0) return;
+
+    const now = new Date();
+    await this.eventRepository.save(
+      EVENTS_SEED.map((event) =>
+        this.eventRepository.create({
+          ...event,
+          agenda: [...event.agenda],
+          menuHighlights: [...event.menuHighlights],
+          registrationOpenAt: now,
+          registrationCloseAt: null,
+        }),
+      ),
     );
   }
 

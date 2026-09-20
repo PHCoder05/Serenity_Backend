@@ -11,12 +11,15 @@ import { UserProfileEntity } from '../../serenity/infrastructure/persistence/rel
 import { CreateOrderDto } from '../../serenity/dto/serenity.dto';
 import { MenuItemEntity } from '../../serenity/infrastructure/persistence/relational/entities/menu-item.entity';
 import {
+  buildOrderDiscounts,
   buildPetpoojaSaveOrderPayload,
   canPushOrderToPetpooja,
   SerenityOrderLineInput,
 } from '../mappers/petpooja-order.mapper';
 import { PetpoojaRepository } from '../infrastructure/persistence/petpooja.repository';
 import { SaveOrderDto } from '../dto/save-order.dto';
+import { withPetpoojaAuthBody } from '../utils/petpooja-api-auth';
+import { OutletEntity } from '../../serenity/infrastructure/persistence/relational/entities/outlet.entity';
 
 type PricedOrderLine = {
   menuItem: MenuItemEntity;
@@ -41,6 +44,8 @@ export class PetpoojaOrderOutboundService {
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(UserProfileEntity)
     private readonly profileRepository: Repository<UserProfileEntity>,
+    @InjectRepository(OutletEntity)
+    private readonly outletRepository: Repository<OutletEntity>,
   ) {}
 
   isEnabled(): boolean {
@@ -52,6 +57,20 @@ export class PetpoojaOrderOutboundService {
     });
 
     return Boolean(enabled ?? true) && Boolean(restId);
+  }
+
+  private async resolveRestId(order: SerenityOrderEntity): Promise<string> {
+    if (order.outletId) {
+      const outlet = await this.outletRepository.findOne({
+        where: { id: order.outletId },
+      });
+      if (outlet?.petpoojaRestId?.trim()) {
+        return outlet.petpoojaRestId.trim();
+      }
+    }
+    return (
+      this.configService.get('petpooja.restaurantId', { infer: true }) ?? ''
+    );
   }
 
   async pushSerenityOrder(input: {
@@ -85,10 +104,16 @@ export class PetpoojaOrderOutboundService {
     }
 
     const customer = await this.getCustomerDetails(input.order.userId);
-    const restId = this.configService.get('petpooja.restaurantId', {
-      infer: true,
-    }) as string;
+    const restId = await this.resolveRestId(input.order);
+    if (!restId) {
+      this.logger.warn(
+        `Skipping PetPooja push for ${input.order.id}: no petpoojaRestId on outlet/env`,
+      );
+      await this.markKitchenSync(input.order.id, 'skipped');
+      return;
+    }
 
+    const discounts = buildOrderDiscounts(input.order, input.dto.couponCode);
     const payload = buildPetpoojaSaveOrderPayload({
       restId,
       orderId: input.order.id,
@@ -101,7 +126,20 @@ export class PetpoojaOrderOutboundService {
       subtotal: input.subtotal,
       gst: input.gst,
       total: input.total,
+      discounts,
       orderedAt: input.order.orderedAt,
+      callbackUrl:
+        this.configService.get('petpooja.callbackUrl', { infer: true }) ?? '',
+      taxConfig: {
+        cgstTaxId:
+          this.configService.get('petpooja.cgstTaxId', { infer: true }) ??
+          '3661',
+        sgstTaxId:
+          this.configService.get('petpooja.sgstTaxId', { infer: true }) ??
+          '3662',
+        cgstRate: 0.025,
+        sgstRate: 0.025,
+      },
     });
 
     await this.petpoojaRepository.upsertOrder({
@@ -115,20 +153,34 @@ export class PetpoojaOrderOutboundService {
     try {
       const response = await this.postOrderWithRetry(payload);
 
+      const rawOrderId = response.data?.orderID;
       const petpoojaOrderId =
-        response.data?.orderID != null ? String(response.data.orderID) : null;
+        rawOrderId != null && String(rawOrderId).trim() !== ''
+          ? String(rawOrderId).trim()
+          : null;
+
+      if (!petpoojaOrderId) {
+        this.logger.warn(
+          `PetPooja save_order returned empty orderID for ${input.order.id}: ${JSON.stringify(response.data)}`,
+        );
+      }
 
       await this.orderRepository.update(input.order.id, {
         kitchenSyncStatus: 'submitted',
         petpoojaOrderId,
       });
 
+      const orderInfoWithResponse = {
+        ...(payload.orderinfo as Record<string, unknown>),
+        _saveOrderResponse: response.data,
+      };
+
       await this.petpoojaRepository.upsertOrder({
         restId,
         orderId: petpoojaOrderId ?? input.order.id,
         clientOrderId: input.order.id,
         status: 'submitted',
-        orderInfo: payload.orderinfo as Record<string, unknown>,
+        orderInfo: orderInfoWithResponse,
       });
     } catch (error: any) {
       this.logger.error(
@@ -136,6 +188,58 @@ export class PetpoojaOrderOutboundService {
         error.stack,
       );
       await this.markKitchenSync(input.order.id, 'failed');
+    }
+  }
+
+  /** Best-effort kitchen cancel. Never throws to the customer cancel path. */
+  async cancelSerenityOrder(order: SerenityOrderEntity): Promise<void> {
+    if (!this.isEnabled()) {
+      return;
+    }
+
+    const restId = await this.resolveRestId(order);
+    if (!restId) {
+      return;
+    }
+    const orderId = order.petpoojaOrderId ?? order.id;
+
+    try {
+      await firstValueFrom(
+        this.httpService.post(
+          this.configService.get('petpooja.updateOrderStatusUrl', {
+            infer: true,
+          }) as string,
+          withPetpoojaAuthBody(
+            {
+              appKey:
+                this.configService.get('petpooja.appKey', { infer: true }) ??
+                '',
+              appSecret:
+                this.configService.get('petpooja.appSecret', {
+                  infer: true,
+                }) ?? '',
+              accessToken:
+                this.configService.get('petpooja.accessToken', {
+                  infer: true,
+                }) ?? '',
+            },
+            {
+              restID: restId,
+              orderID: orderId,
+              clientorderID: order.id,
+              cancelReason: order.cancelReason ?? 'Cancelled by customer',
+              status: '-1',
+            },
+          ),
+          {
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      );
+    } catch (error: any) {
+      this.logger.warn(
+        `PetPooja cancel failed for ${order.id}: ${error.message}`,
+      );
     }
   }
 
@@ -150,20 +254,24 @@ export class PetpoojaOrderOutboundService {
             this.configService.get('petpooja.saveOrderUrl', {
               infer: true,
             }) as string,
-            payload,
-            {
-              headers: {
-                'app-key': this.configService.get('petpooja.appKey', {
-                  infer: true,
-                }),
-                'app-secret': this.configService.get('petpooja.appSecret', {
-                  infer: true,
-                }),
-                'access-token': this.configService.get('petpooja.accessToken', {
-                  infer: true,
-                }),
-                'Content-Type': 'application/json',
+            withPetpoojaAuthBody(
+              {
+                appKey:
+                  this.configService.get('petpooja.appKey', { infer: true }) ??
+                  '',
+                appSecret:
+                  this.configService.get('petpooja.appSecret', {
+                    infer: true,
+                  }) ?? '',
+                accessToken:
+                  this.configService.get('petpooja.accessToken', {
+                    infer: true,
+                  }) ?? '',
               },
+              payload,
+            ),
+            {
+              headers: { 'Content-Type': 'application/json' },
             },
           ),
         );

@@ -1,4 +1,6 @@
+export { CouponService } from './coupon.service';
 export { DiagnosticsService } from './diagnostics.service';
+export { DiyService } from './diy.service';
 export { EventsService } from './events.service';
 export { LoyaltyService } from './loyalty.service';
 export { MenuService } from './menu.service';

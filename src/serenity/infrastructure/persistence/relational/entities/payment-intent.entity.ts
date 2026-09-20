@@ -27,8 +27,23 @@ export class PaymentIntentEntity extends EntityRelationalHelper {
   @Column({ type: 'varchar', length: 24, default: 'created' })
   status: string;
 
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  provider: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  externalOrderRef: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  externalPaymentRef: string | null;
+
   @Column({ type: 'varchar', length: 120, nullable: true })
   externalReference: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  clientActionJson: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  refundRef: string | null;
 
   @Column({ type: 'text', nullable: true })
   failureReason: string | null;

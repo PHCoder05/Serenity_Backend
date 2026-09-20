@@ -12,6 +12,7 @@ import facebookConfig from './auth-facebook/config/facebook.config';
 import googleConfig from './auth-google/config/google.config';
 import appleConfig from './auth-apple/config/apple.config';
 import petpoojaConfig from './petpooja/config/petpooja.config';
+import serenityConfig from './serenity/config/serenity.config';
 import path from 'path';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -60,6 +61,7 @@ const infrastructureDatabaseModule = (databaseConfig() as DatabaseConfig)
         googleConfig,
         appleConfig,
         petpoojaConfig,
+        serenityConfig,
       ],
       envFilePath: ['.env'],
     }),

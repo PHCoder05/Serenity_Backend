@@ -242,3 +242,44 @@ export const FEATURED_MENU_IDS = [
   'golden-lentil-bowl',
   'garden-greens-bowl',
 ] as const;
+
+export const EVENTS_SEED = [
+  {
+    id: 'evt-alumni-26',
+    title: 'Alumni Meet 26’',
+    subtitle: 'A quieter evening for reconnecting over bowls and conversation.',
+    description:
+      'Join fellow alumni for a calm evening at Serenity — seasonal bowls, soft music, and space to catch up without the rush.',
+    dateLabel: '26th April 2026 | 10:00 AM',
+    location: 'Serenity Koramangala, Bengaluru',
+    audience: 'Alumni',
+    status: 'registration-open',
+    image:
+      'https://images.unsplash.com/photo-1511795409834-ef04bbd61622?auto=format&fit=crop&w=1400&q=80',
+    agenda: ['Welcome pour', 'Shared bowls', 'Open conversation'],
+    menuHighlights: ['Golden Lentil Bowl', 'Garden Greens Bowl', 'Citrus Tea'],
+    hostName: 'Serenity Team',
+    maxGuests: 80,
+    depositAmountInr: 500,
+    waitlistEnabled: true,
+  },
+  {
+    id: 'evt-focus-lunch',
+    title: 'Focus Lunch Hour',
+    subtitle: 'A midweek pause with balanced plates.',
+    description:
+      'Bring your laptop or leave it — this lunch is built for a clear afternoon without the noise.',
+    dateLabel: 'Every Wednesday | 12:30 PM',
+    location: 'Serenity Koramangala, Bengaluru',
+    audience: 'Corporate',
+    status: 'registration-open',
+    image:
+      'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=1400&q=80',
+    agenda: ['Seat & settle', 'Balanced lunch', 'Optional desk return'],
+    menuHighlights: ['Miso Rice Bowl', 'Slow Lunch Plate'],
+    hostName: 'Serenity Team',
+    maxGuests: 40,
+    depositAmountInr: 0,
+    waitlistEnabled: true,
+  },
+] as const;

@@ -1,15 +1,18 @@
 import {
+  BadRequestException,
   HttpStatus,
   Injectable,
   NotFoundException,
   UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import ms from 'ms';
 import crypto from 'crypto';
 import { randomStringGenerator } from '@nestjs/common/utils/random-string-generator.util';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
+import { IsNull, MoreThan, Repository } from 'typeorm';
 import { AuthEmailLoginDto } from './dto/auth-email-login.dto';
 import { AuthUpdateDto } from './dto/auth-update.dto';
 import { AuthProvidersEnum } from './auth-providers.enum';
@@ -28,6 +31,13 @@ import { Session } from '../session/domain/session';
 import { SessionService } from '../session/session.service';
 import { StatusEnum } from '../statuses/statuses.enum';
 import { User } from '../users/domain/user';
+import { PhoneOtpEntity } from './infrastructure/persistence/relational/entities/phone-otp.entity';
+import { isValidPhone, normalizePhone } from './utils/phone.util';
+
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_RATE_WINDOW_MS = 15 * 60 * 1000;
+const OTP_RATE_MAX = 5;
+const OTP_MAX_ATTEMPTS = 5;
 
 @Injectable()
 export class AuthService {
@@ -37,7 +47,174 @@ export class AuthService {
     private readonly sessionService: SessionService,
     private readonly mailService: MailService,
     private readonly configService: ConfigService<AllConfigType>,
+    @InjectRepository(PhoneOtpEntity)
+    private readonly phoneOtpRepository: Repository<PhoneOtpEntity>,
   ) {}
+
+  async requestPhoneOtp(phoneRaw: string) {
+    const phone = normalizePhone(phoneRaw);
+    if (!isValidPhone(phone)) {
+      throw new BadRequestException({
+        message: 'Invalid phone number',
+        code: 'OTP_INVALID',
+      });
+    }
+
+    const since = new Date(Date.now() - OTP_RATE_WINDOW_MS);
+    const recent = await this.phoneOtpRepository.count({
+      where: { phone, createdAt: MoreThan(since) },
+    });
+    if (recent >= OTP_RATE_MAX) {
+      throw new BadRequestException({
+        message: 'Too many OTP requests; try again later',
+        code: 'OTP_RATE_LIMITED',
+      });
+    }
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const codeHash = await bcrypt.hash(code, 10);
+    await this.phoneOtpRepository.save(
+      this.phoneOtpRepository.create({
+        phone,
+        codeHash,
+        expiresAt: new Date(Date.now() + OTP_TTL_MS),
+        attempts: 0,
+        consumedAt: null,
+      }),
+    );
+
+    const provider = process.env.AUTH_OTP_PROVIDER || 'console';
+    if (provider === 'console') {
+      console.info(`[phone-otp] phone=${phone} code=${code}`);
+    }
+
+    const payload: {
+      ok: true;
+      expiresInSec: number;
+      devCode?: string;
+    } = {
+      ok: true,
+      expiresInSec: Math.floor(OTP_TTL_MS / 1000),
+    };
+    if (provider === 'console' && process.env.NODE_ENV !== 'production') {
+      payload.devCode = code;
+    }
+    return payload;
+  }
+
+  async verifyPhoneOtp(
+    phoneRaw: string,
+    code: string,
+  ): Promise<LoginResponseDto> {
+    const phone = normalizePhone(phoneRaw);
+    if (!isValidPhone(phone)) {
+      throw new BadRequestException({
+        message: 'Invalid phone number',
+        code: 'OTP_INVALID',
+      });
+    }
+
+    const row = await this.phoneOtpRepository.findOne({
+      where: { phone, consumedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
+
+    if (!row) {
+      throw new BadRequestException({
+        message: 'No active OTP for this phone',
+        code: 'OTP_INVALID',
+      });
+    }
+    if (row.expiresAt.getTime() < Date.now()) {
+      throw new BadRequestException({
+        message: 'OTP expired',
+        code: 'OTP_EXPIRED',
+      });
+    }
+    if (row.attempts >= OTP_MAX_ATTEMPTS) {
+      throw new BadRequestException({
+        message: 'OTP attempts exceeded',
+        code: 'OTP_INVALID',
+      });
+    }
+
+    const matches = await bcrypt.compare(code.trim(), row.codeHash);
+    row.attempts += 1;
+    if (!matches) {
+      await this.phoneOtpRepository.save(row);
+      throw new BadRequestException({
+        message: 'Incorrect OTP',
+        code: 'OTP_INVALID',
+      });
+    }
+
+    row.consumedAt = new Date();
+    await this.phoneOtpRepository.save(row);
+
+    const user = await this.ensurePhoneUser(phone);
+    return this.issueSession(user);
+  }
+
+  async ensurePhoneUser(phoneRaw: string, name?: string): Promise<User> {
+    const phone = normalizePhone(phoneRaw);
+    let user = await this.usersService.findBySocialIdAndProvider({
+      socialId: phone,
+      provider: AuthProvidersEnum.phone,
+    });
+
+    if (user) {
+      if (name && !user.firstName) {
+        await this.usersService.update(user.id, { firstName: name });
+        user = await this.usersService.findById(user.id);
+      }
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+      return user;
+    }
+
+    const created = await this.usersService.create({
+      email: null,
+      firstName: name?.trim() || null,
+      lastName: null,
+      socialId: phone,
+      provider: AuthProvidersEnum.phone,
+      role: { id: RoleEnum.user },
+      status: { id: StatusEnum.active },
+    });
+
+    const loaded = await this.usersService.findById(created.id);
+    if (!loaded) {
+      throw new NotFoundException('User not found');
+    }
+    return loaded;
+  }
+
+  private async issueSession(user: User): Promise<LoginResponseDto> {
+    const hash = crypto
+      .createHash('sha256')
+      .update(randomStringGenerator())
+      .digest('hex');
+
+    const session = await this.sessionService.create({
+      user,
+      hash,
+    });
+
+    const { token, refreshToken, tokenExpires } = await this.getTokensData({
+      id: user.id,
+      role: user.role,
+      sessionId: session.id,
+      hash,
+    });
+
+    return {
+      refreshToken,
+      token,
+      tokenExpires,
+      user,
+    };
+  }
 
   async validateLogin(loginDto: AuthEmailLoginDto): Promise<LoginResponseDto> {
     const user = await this.usersService.findByEmail(loginDto.email);
