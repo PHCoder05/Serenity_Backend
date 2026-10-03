@@ -28,6 +28,23 @@ export class DiySelectionsDto {
   fibre: string;
 }
 
+export class DiyQuoteDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  base?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  protein?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  fibre?: string;
+}
+
 export class OrderQuoteItemDto {
   @ApiProperty()
   @IsString()
@@ -198,6 +215,17 @@ export class UpsertSavedBowlDto {
   @IsOptional()
   @IsString()
   subtitle?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  menuItemId?: string;
+
+  @ApiPropertyOptional({ type: DiySelectionsDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => DiySelectionsDto)
+  diySelections?: DiySelectionsDto;
 }
 
 export class CreateEventDto {
@@ -378,9 +406,9 @@ export class ConfirmPaymentIntentDto {
 }
 
 export class UpsertPaymentGatewayDto {
-  @ApiProperty({ enum: ['razorpay', 'stripe', 'payu'] })
-  @IsIn(['razorpay', 'stripe', 'payu'])
-  provider: 'razorpay' | 'stripe' | 'payu';
+  @ApiProperty({ enum: ['razorpay', 'stripe', 'payu', 'mock'] })
+  @IsIn(['razorpay', 'stripe', 'payu', 'mock'])
+  provider: 'razorpay' | 'stripe' | 'payu' | 'mock';
 
   @ApiProperty({ enum: ['test', 'live'] })
   @IsIn(['test', 'live'])
@@ -406,15 +434,15 @@ export class UpsertPaymentGatewayDto {
 }
 
 export class ActivatePaymentGatewayDto {
-  @ApiProperty({ enum: ['razorpay', 'stripe', 'payu'] })
-  @IsIn(['razorpay', 'stripe', 'payu'])
-  provider: 'razorpay' | 'stripe' | 'payu';
+  @ApiProperty({ enum: ['razorpay', 'stripe', 'payu', 'mock'] })
+  @IsIn(['razorpay', 'stripe', 'payu', 'mock'])
+  provider: 'razorpay' | 'stripe' | 'payu' | 'mock';
 }
 
 export class TestPaymentGatewayDto {
-  @ApiProperty({ enum: ['razorpay', 'stripe', 'payu'] })
-  @IsIn(['razorpay', 'stripe', 'payu'])
-  provider: 'razorpay' | 'stripe' | 'payu';
+  @ApiProperty({ enum: ['razorpay', 'stripe', 'payu', 'mock'] })
+  @IsIn(['razorpay', 'stripe', 'payu', 'mock'])
+  provider: 'razorpay' | 'stripe' | 'payu' | 'mock';
 
   @ApiPropertyOptional({
     type: 'object',

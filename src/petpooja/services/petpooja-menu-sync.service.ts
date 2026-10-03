@@ -39,8 +39,45 @@ export class PetpoojaMenuSyncService {
       return 0;
     }
 
+    const existing = await this.menuRepository.find();
+    const byPetpoojaId = new Map(
+      existing
+        .filter((row) => row.petpoojaItemId)
+        .map((row) => [row.petpoojaItemId as string, row]),
+    );
+    const byName = new Map(
+      existing.map((row) => [row.name.trim().toLowerCase(), row]),
+    );
+
     for (const item of mappedItems) {
-      await this.menuRepository.save(
+      const named = byName.get(item.name.trim().toLowerCase());
+      const alreadyMapped = byPetpoojaId.get(item.petpoojaItemId);
+
+      if (named && alreadyMapped && named.id !== alreadyMapped.id) {
+        alreadyMapped.petpoojaItemId = null;
+        alreadyMapped.inStock = false;
+        await this.menuRepository.save(alreadyMapped);
+        byPetpoojaId.delete(item.petpoojaItemId);
+      }
+
+      const target = named ?? alreadyMapped;
+      if (target) {
+        target.petpoojaItemId = item.petpoojaItemId;
+        target.description = item.description;
+        target.shortLabel = item.shortLabel;
+        target.category = item.category;
+        target.basePrice = item.basePrice;
+        target.variants = item.variants;
+        target.extras = item.extras;
+        target.isCustomizable = item.isCustomizable;
+        target.inStock = item.inStock;
+        await this.menuRepository.save(target);
+        byPetpoojaId.set(item.petpoojaItemId, target);
+        byName.set(target.name.trim().toLowerCase(), target);
+        continue;
+      }
+
+      const created = await this.menuRepository.save(
         this.menuRepository.create({
           id: item.id,
           petpoojaItemId: item.petpoojaItemId,
@@ -55,8 +92,11 @@ export class PetpoojaMenuSyncService {
           extras: item.extras,
           isCustomizable: item.isCustomizable,
           inStock: item.inStock,
+          stockQty: 100,
         }),
       );
+      byPetpoojaId.set(item.petpoojaItemId, created);
+      byName.set(created.name.trim().toLowerCase(), created);
     }
 
     this.logger.log(`Synced ${mappedItems.length} menu items from PetPooja`);

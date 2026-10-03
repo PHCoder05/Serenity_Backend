@@ -85,7 +85,7 @@ export function mapSerenityStatusFromPetpooja(status: string): string | null {
 /** Cancel always applies; otherwise only forward (or same) progression. */
 export function isStatusProgression(from: string, to: string): boolean {
   if (to === 'cancelled') {
-    return true;
+    return from !== 'cancelled';
   }
   if (from === 'cancelled') {
     return false;

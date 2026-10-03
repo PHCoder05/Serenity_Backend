@@ -1,7 +1,12 @@
 import request from 'supertest';
 import { randomUUID } from 'crypto';
 import { APP_URL } from '../utils/constants';
-import { firstMenuItemId, loginSerenityDemo } from '../utils/serenity';
+import {
+  firstMenuItemId,
+  loginAdmin,
+  loginSerenityDemo,
+  reopenStore,
+} from '../utils/serenity';
 
 function expectOk(status: number) {
   expect([200, 201]).toContain(status);
@@ -12,7 +17,8 @@ describe('Serenity orders flow (WP-S9)', () => {
   let token: string;
   let itemId: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    await reopenStore();
     ({ token } = await loginSerenityDemo());
     itemId = await firstMenuItemId();
   });
@@ -95,5 +101,58 @@ describe('Serenity orders flow (WP-S9)', () => {
     expect(
       res.body?.code ?? res.body?.message?.code ?? res.body?.message,
     ).toBeTruthy();
+  });
+
+  it('should places a guest COD order and lets admin collect then serve', async () => {
+    const { token: adminToken } = await loginAdmin();
+
+    const createRes = await request(app)
+      .post('/api/v1/orders')
+      .set('x-idempotency-key', `guest-e2e-${randomUUID()}`)
+      .send({
+        items: [{ itemId, quantity: 1 }],
+        deliveryAddress: 'Counter',
+        paymentMethod: 'COD',
+        guest: { name: 'E2E Guest', phone: '9611111111' },
+      });
+    expectOk(createRes.status);
+    expect(createRes.body.amountPaid).toBe(0);
+    expect(createRes.body.paidVia).toBe('COD');
+    expect(createRes.body.guestToken).toBeDefined();
+
+    const orderId = createRes.body.id as string;
+    const guestToken = createRes.body.guestToken as string;
+
+    await request(app)
+      .get(`/api/v1/orders/guest/${guestToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.id).toBe(orderId);
+        expect(body.amountPaid).toBe(0);
+      });
+
+    await request(app)
+      .post(`/api/v1/admin/support/orders/${orderId}/collect`)
+      .expect(401);
+
+    const collected = await request(app)
+      .post(`/api/v1/admin/support/orders/${orderId}/collect`)
+      .auth(adminToken, { type: 'bearer' });
+    expectOk(collected.status);
+    expect(collected.body.amountPaid).toBe(collected.body.total);
+
+    const served = await request(app)
+      .post(`/api/v1/admin/support/orders/${orderId}/serve`)
+      .auth(adminToken, { type: 'bearer' });
+    expectOk(served.status);
+    expect(served.body.status).toBe('delivered');
+
+    await request(app)
+      .get(`/api/v1/orders/guest/${guestToken}`)
+      .expect(200)
+      .expect(({ body }) => {
+        expect(body.status).toBe('delivered');
+        expect(body.amountPaid).toBe(body.total);
+      });
   });
 });

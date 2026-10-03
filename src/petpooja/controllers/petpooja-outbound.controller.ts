@@ -35,7 +35,10 @@ export class PetpoojaOutboundController {
 
   @Post('menu/fetch')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Fetch current menu from PetPooja' })
+  @ApiOperation({
+    summary: 'Deprecated: do not use. Menu comes from Push Menu webhook.',
+    deprecated: true,
+  })
   fetchMenu(@Body() dto: FetchMenuDto) {
     return this.petpoojaService.fetchMenu(dto);
   }

@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../roles/roles.decorator';
@@ -24,5 +24,17 @@ export class AdminSupportController {
   @ApiOkResponse()
   searchOrders(@Query('q') q?: string) {
     return this.supportService.searchOrders(q);
+  }
+
+  @Post('orders/:id/collect')
+  @ApiOkResponse()
+  collectPayment(@Param('id') id: string) {
+    return this.supportService.collectPayment(id);
+  }
+
+  @Post('orders/:id/serve')
+  @ApiOkResponse()
+  markServed(@Param('id') id: string) {
+    return this.supportService.markServed(id);
   }
 }

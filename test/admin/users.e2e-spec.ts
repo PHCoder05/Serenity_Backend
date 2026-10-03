@@ -42,9 +42,9 @@ describe('Users Module', () => {
     });
 
     describe('User with "Admin" role', () => {
-      it('should change password for existing user: /api/v1/users/:id (PATCH)', () => {
+      it('should change password for existing user: /api/v1/admin/users/:id (PATCH)', () => {
         return request(app)
-          .patch(`/api/v1/users/${newUser.id}`)
+          .patch(`/api/v1/admin/users/${newUser.id}`)
           .auth(apiToken, {
             type: 'bearer',
           })
@@ -77,9 +77,9 @@ describe('Users Module', () => {
     const newUserByAdminPassword = `secret`;
 
     describe('User with "Admin" role', () => {
-      it('should fail to create new user with invalid email: /api/v1/users (POST)', () => {
+      it('should fail to create new user with invalid email: /api/v1/admin/users (POST)', () => {
         return request(app)
-          .post(`/api/v1/users`)
+          .post(`/api/v1/admin/users`)
           .auth(apiToken, {
             type: 'bearer',
           })
@@ -87,9 +87,9 @@ describe('Users Module', () => {
           .expect(422);
       });
 
-      it('should successfully create new user: /api/v1/users (POST)', () => {
+      it('should successfully create new user: /api/v1/admin/users (POST)', () => {
         return request(app)
-          .post(`/api/v1/users`)
+          .post(`/api/v1/admin/users`)
           .auth(apiToken, {
             type: 'bearer',
           })
@@ -127,9 +127,9 @@ describe('Users Module', () => {
 
   describe('Get many', () => {
     describe('User with "Admin" role', () => {
-      it('should get list of users: /api/v1/users (GET)', () => {
+      it('should get list of users: /api/v1/admin/users (GET)', () => {
         return request(app)
-          .get(`/api/v1/users`)
+          .get(`/api/v1/admin/users`)
           .auth(apiToken, {
             type: 'bearer',
           })
@@ -152,7 +152,7 @@ describe('Users Module', () => {
 
     beforeAll(async () => {
       await request(app)
-        .post('/api/v1/users')
+        .post('/api/v1/admin/users')
         .auth(apiToken, { type: 'bearer' })
         .send({
           email: deleteUserEmail,
@@ -168,9 +168,9 @@ describe('Users Module', () => {
         });
     });
 
-    it('should get user by id: /api/v1/users/:id (GET)', () => {
+    it('should get user by id: /api/v1/admin/users/:id (GET)', () => {
       return request(app)
-        .get(`/api/v1/users/${deleteUserId}`)
+        .get(`/api/v1/admin/users/${deleteUserId}`)
         .auth(apiToken, { type: 'bearer' })
         .expect(200)
         .expect(({ body }) => {
@@ -178,9 +178,9 @@ describe('Users Module', () => {
         });
     });
 
-    it('should delete user by id: /api/v1/users/:id (DELETE)', async () => {
+    it('should delete user by id: /api/v1/admin/users/:id (DELETE)', async () => {
       await request(app)
-        .delete(`/api/v1/users/${deleteUserId}`)
+        .delete(`/api/v1/admin/users/${deleteUserId}`)
         .auth(apiToken, { type: 'bearer' })
         .expect(204);
 

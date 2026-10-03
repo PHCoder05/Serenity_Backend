@@ -56,7 +56,14 @@ export class PetpoojaService {
     }
   }
 
+  /**
+   * @deprecated PetPooja fetch-menu (`mapped_restaurant_menus`) is deprecated.
+   * Catalogue must arrive via Push Menu webhook (`POST …/pushmenu`).
+   */
   async fetchMenu(payload: FetchMenuDto) {
+    this.logger.warn(
+      'fetchMenu is deprecated — use Push Menu webhook, not mapped_restaurant_menus',
+    );
     const url = this.configService.get('petpooja.fetchMenuUrl', {
       infer: true,
     });

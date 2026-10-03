@@ -94,24 +94,32 @@ export class SerenitySeedService {
 
   private async seedMenu() {
     const count = await this.menuRepository.count();
-    if (count > 0) return;
+    if (count === 0) {
+      await this.menuRepository.save(
+        MENU_ITEMS_SEED.map((item) => {
+          const entry = item as typeof item & {
+            variants?: { id: string; label: string; priceDelta: number }[];
+            extras?: { id: string; label: string; price: number }[];
+          };
 
-    await this.menuRepository.save(
-      MENU_ITEMS_SEED.map((item) => {
-        const entry = item as typeof item & {
-          variants?: { id: string; label: string; priceDelta: number }[];
-          extras?: { id: string; label: string; price: number }[];
-        };
+          return this.menuRepository.create({
+            ...entry,
+            moods: [...entry.moods],
+            variants: entry.variants ? [...entry.variants] : null,
+            extras: entry.extras ? [...entry.extras] : null,
+            inStock: true,
+            stockQty: 100,
+          });
+        }),
+      );
+    }
 
-        return this.menuRepository.create({
-          ...entry,
-          moods: [...entry.moods],
-          variants: entry.variants ? [...entry.variants] : null,
-          extras: entry.extras ? [...entry.extras] : null,
-          inStock: true,
-        });
-      }),
-    );
+    await this.menuRepository
+      .createQueryBuilder()
+      .update(MenuItemEntity)
+      .set({ stockQty: 100 })
+      .where('"stockQty" IS NULL')
+      .execute();
   }
 
   private async seedDietPreferences() {

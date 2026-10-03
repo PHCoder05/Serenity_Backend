@@ -1,9 +1,10 @@
-export type PaymentProviderId = 'razorpay' | 'stripe' | 'payu';
+export type PaymentProviderId = 'razorpay' | 'stripe' | 'payu' | 'mock';
 
 export const PAYMENT_PROVIDERS: PaymentProviderId[] = [
   'razorpay',
   'stripe',
   'payu',
+  'mock',
 ];
 
 export type GatewayMode = 'test' | 'live';
@@ -23,10 +24,15 @@ export type PayuCredentials = {
   merchantSalt: string;
 };
 
+export type MockCredentials = {
+  token?: string;
+};
+
 export type GatewayCredentials =
   | RazorpayCredentials
   | StripeCredentials
-  | PayuCredentials;
+  | PayuCredentials
+  | MockCredentials;
 
 export type ClientAction =
   | {
@@ -47,6 +53,12 @@ export type ClientAction =
       actionUrl: string;
       params: Record<string, string>;
       txnid: string;
+    }
+  | {
+      type: 'mock_checkout';
+      mockOrderId: string;
+      amountInr: number;
+      currency: string;
     };
 
 export type CreateCheckoutResult = {

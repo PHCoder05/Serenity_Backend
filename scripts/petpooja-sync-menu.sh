@@ -15,7 +15,11 @@ APP_PORT="${APP_PORT:-3000}"
 API_PREFIX="${API_PREFIX:-api}"
 REST_ID="${PETPOOJA_RESTAURANT_ID:-hbmp8vufrd}"
 
-echo "PetPooja menu sync (fetch → Serenity DB)"
+echo "DEPRECATED: this script calls fetch-menu (mapped_restaurant_menus)."
+echo "Use Push Menu instead: PetPooja dashboard → Menu Management → Push Menu"
+echo "  POST {webhook-base}/pushmenu"
+echo "========================================"
+echo "PetPooja menu sync (deprecated fetch → Serenity DB)"
 echo "========================================"
 
 RESPONSE="$(curl -fsS -X POST "http://127.0.0.1:${APP_PORT}/${API_PREFIX}/v1/petpooja/outbound/menu/fetch" \

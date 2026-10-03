@@ -103,7 +103,13 @@ export class PetpoojaOrderOutboundService {
       return;
     }
 
-    const customer = await this.getCustomerDetails(input.order.userId);
+    const customer =
+      input.order.userId == null
+        ? {
+            name: input.dto.guest?.name?.trim() || 'Guest',
+            phone: input.order.guestPhone || input.dto.guest?.phone || '',
+          }
+        : await this.getCustomerDetails(input.order.userId);
     const restId = await this.resolveRestId(input.order);
     if (!restId) {
       this.logger.warn(

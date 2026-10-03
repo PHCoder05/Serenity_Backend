@@ -136,8 +136,12 @@ export class CouponService {
     row.value = dto.value;
     row.minSubtotal = dto.minSubtotal ?? 0;
     row.maxDiscount = dto.maxDiscount ?? null;
-    row.startsAt = dto.startsAt ? new Date(dto.startsAt) : null;
-    row.endsAt = dto.endsAt ? new Date(dto.endsAt) : null;
+    if (dto.startsAt !== undefined) {
+      row.startsAt = dto.startsAt ? new Date(dto.startsAt) : null;
+    }
+    if (dto.endsAt !== undefined) {
+      row.endsAt = dto.endsAt ? new Date(dto.endsAt) : null;
+    }
     row.maxRedemptions = dto.maxRedemptions ?? null;
     row.isActive = dto.isActive ?? true;
 

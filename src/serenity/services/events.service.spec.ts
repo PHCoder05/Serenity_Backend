@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { EventsService } from './events.service';
 import { EventEntity } from '../infrastructure/persistence/relational/entities/event.entity';
 import { EventBookingEntity } from '../infrastructure/persistence/relational/entities/event-booking.entity';
@@ -104,6 +108,7 @@ describe('EventsService', () => {
 
     const paymentsService = opts?.payments ?? {
       assertSucceededForOrder: jest.fn().mockResolvedValue({}),
+      refundForOrderCancel: jest.fn().mockResolvedValue({ refunded: false }),
     };
 
     const service = new EventsService(
@@ -184,21 +189,21 @@ describe('EventsService', () => {
   it('should rejects reused payment intent', async () => {
     const { service } = build({
       event: { depositAmountInr: 100 },
-      bookings: [
-        {
-          id: 'ebk-old',
-          status: 'confirmed',
-          guestCount: 1,
-          paymentIntentId: 'pi_used',
-        },
-      ],
+      payments: {
+        assertSucceededForOrder: jest.fn().mockRejectedValue(
+          new ConflictException({
+            message: 'Payment intent already used',
+            code: 'PAYMENT_INTENT_REUSED',
+          }),
+        ),
+      },
     });
     await expect(
       service.createBooking(1, 'evt-1', {
         ...bookingDto,
         paymentIntentId: 'pi_used',
       }),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('should cancels only owner booking', async () => {

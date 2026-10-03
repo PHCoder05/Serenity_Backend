@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  HttpException,
   HttpStatus,
   Injectable,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
   UnauthorizedException,
   UnprocessableEntityException,
@@ -34,12 +36,15 @@ import { SessionService } from '../session/session.service';
 import { StatusEnum } from '../statuses/statuses.enum';
 import { User } from '../users/domain/user';
 import { PhoneOtpEntity } from './infrastructure/persistence/relational/entities/phone-otp.entity';
+import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
 import { isValidPhone, normalizePhone } from './utils/phone.util';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RATE_WINDOW_MS = 15 * 60 * 1000;
 const OTP_RATE_MAX = 5;
 const OTP_MAX_ATTEMPTS = 5;
+const EMAIL_AUTH_WINDOW_MS = 15 * 60 * 1000;
+const EMAIL_AUTH_MAX = 40;
 
 @Injectable()
 export class AuthService {
@@ -51,7 +56,31 @@ export class AuthService {
     private readonly configService: ConfigService<AllConfigType>,
     @InjectRepository(PhoneOtpEntity)
     private readonly phoneOtpRepository: Repository<PhoneOtpEntity>,
+    @Optional()
+    @InjectRepository(SerenityOrderEntity)
+    private readonly orderRepository?: Repository<SerenityOrderEntity>,
   ) {}
+
+  private readonly emailAuthHits = new Map<string, number[]>();
+
+  private assertEmailAuthRate(action: string, email: string) {
+    const key = `${action}:${email.trim().toLowerCase()}`;
+    const now = Date.now();
+    const hits = (this.emailAuthHits.get(key) ?? []).filter(
+      (at) => now - at < EMAIL_AUTH_WINDOW_MS,
+    );
+    if (hits.length >= EMAIL_AUTH_MAX) {
+      throw new HttpException(
+        {
+          message: 'Too many attempts; try again later',
+          code: 'AUTH_RATE_LIMITED',
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    hits.push(now);
+    this.emailAuthHits.set(key, hits);
+  }
 
   async requestPhoneOtp(phoneRaw: string) {
     const phone = normalizePhone(phoneRaw);
@@ -73,7 +102,7 @@ export class AuthService {
       });
     }
 
-    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const code = String(crypto.randomInt(100000, 1000000));
     const codeHash = await bcrypt.hash(code, 10);
     await this.phoneOtpRepository.save(
       this.phoneOtpRepository.create({
@@ -154,14 +183,15 @@ export class AuthService {
     await this.phoneOtpRepository.save(row);
 
     const user = await this.ensurePhoneUser(phone);
+    await this.claimGuestOrders(user.id as number, phone);
     return this.issueSession(user);
   }
 
   async loginWithFirebaseIdToken(idToken: string): Promise<LoginResponseDto> {
     const account = await this.lookupFirebasePhone(idToken);
-    return this.issueSession(
-      await this.ensurePhoneUser(account.phone, account.name),
-    );
+    const user = await this.ensurePhoneUser(account.phone, account.name);
+    await this.claimGuestOrders(user.id as number, normalizePhone(account.phone));
+    return this.issueSession(user);
   }
 
   async lookupFirebasePhone(
@@ -212,6 +242,20 @@ export class AuthService {
       phone,
       name: response.data?.users?.[0]?.displayName,
     };
+  }
+
+  private async claimGuestOrders(userId: number, phone: string) {
+    if (!this.orderRepository || !Number.isFinite(userId)) {
+      return;
+    }
+    await this.orderRepository.update(
+      {
+        guestPhone: phone,
+        isGuestCheckout: true,
+        userId: IsNull(),
+      },
+      { userId },
+    );
   }
 
   async ensurePhoneUser(phoneRaw: string, name?: string): Promise<User> {
@@ -276,6 +320,7 @@ export class AuthService {
   }
 
   async validateLogin(loginDto: AuthEmailLoginDto): Promise<LoginResponseDto> {
+    this.assertEmailAuthRate('login', loginDto.email);
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
@@ -430,6 +475,7 @@ export class AuthService {
   }
 
   async register(dto: AuthRegisterLoginDto): Promise<void> {
+    this.assertEmailAuthRate('register', dto.email);
     const user = await this.usersService.create({
       ...dto,
       email: dto.email,
@@ -547,15 +593,11 @@ export class AuthService {
   }
 
   async forgotPassword(email: string): Promise<void> {
+    this.assertEmailAuthRate('forgot', email);
     const user = await this.usersService.findByEmail(email);
 
     if (!user) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: {
-          email: 'emailNotExists',
-        },
-      });
+      return;
     }
 
     const tokenExpiresIn = this.configService.getOrThrow('auth.forgotExpires', {
@@ -768,6 +810,7 @@ export class AuthService {
   }
 
   async softDelete(user: User): Promise<void> {
+    await this.sessionService.deleteByUserId({ userId: user.id });
     await this.usersService.remove(user.id);
   }
 

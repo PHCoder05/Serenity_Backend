@@ -18,6 +18,13 @@ export class OutletsService {
     private readonly storeRepository: Repository<StoreStatusEntity>,
   ) {}
 
+  async listAdmin() {
+    const rows = await this.outletRepository.find({
+      order: { isDefault: 'DESC', name: 'ASC' },
+    });
+    return { data: rows.map((row) => this.toAdminDto(row)) };
+  }
+
   async list() {
     const rows = await this.outletRepository.find({
       where: { isActive: true },
@@ -90,7 +97,9 @@ export class OutletsService {
     row.slug = dto.slug.trim().toLowerCase();
     row.name = dto.name.trim();
     row.address = dto.address?.trim() || null;
-    row.petpoojaRestId = dto.petpoojaRestId?.trim() || null;
+    if (dto.petpoojaRestId !== undefined) {
+      row.petpoojaRestId = dto.petpoojaRestId.trim() || null;
+    }
     row.isActive = dto.isActive ?? true;
 
     if (dto.isDefault) {

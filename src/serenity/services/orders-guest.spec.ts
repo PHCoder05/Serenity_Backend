@@ -23,6 +23,16 @@ describe('OrdersService guest checkout', () => {
             null
           );
         }
+        if (where.idempotencyKey && where.isGuestCheckout) {
+          return (
+            orders.find(
+              (o) =>
+                o.guestPhone === where.guestPhone &&
+                o.idempotencyKey === where.idempotencyKey &&
+                o.isGuestCheckout === true,
+            ) ?? null
+          );
+        }
         if (where.idempotencyKey) {
           return (
             orders.find(
@@ -51,6 +61,16 @@ describe('OrdersService guest checkout', () => {
         });
         return orders[orders.length - 1];
       }),
+      update: jest.fn((id: string, patch: Record<string, unknown>) => {
+        const row = orders.find((order) => order.id === id);
+        if (row) Object.assign(row, patch);
+        return { affected: row ? 1 : 0 };
+      }),
+      delete: jest.fn((id: string) => {
+        const index = orders.findIndex((order) => order.id === id);
+        if (index >= 0) orders.splice(index, 1);
+        return { affected: index >= 0 ? 1 : 0 };
+      }),
     };
 
     const menuRepository = {
@@ -59,6 +79,7 @@ describe('OrdersService guest checkout', () => {
     const lineItemRepository = {
       create: jest.fn((x) => x),
       save: jest.fn((rows) => rows),
+      delete: jest.fn(),
     };
     const loyaltyRepository = {
       create: jest.fn((x) => x),
@@ -71,6 +92,7 @@ describe('OrdersService guest checkout', () => {
     };
     const paymentsService = {
       assertSucceededForOrder: jest.fn(),
+      assertIntentUnused: jest.fn(),
     };
     const couponService = {
       apply: jest.fn().mockResolvedValue({
@@ -161,10 +183,10 @@ describe('OrdersService guest checkout', () => {
       id: string;
       guestToken?: string;
     };
-    expect(authService.ensurePhoneUser).toHaveBeenCalled();
+    expect(authService.ensurePhoneUser).not.toHaveBeenCalled();
     expect(result.guestToken).toHaveLength(48);
     expect(orders[0].isGuestCheckout).toBe(true);
-    expect(orders[0].userId).toBe(77);
+    expect(orders[0].userId).toBeNull();
 
     const lookup = await service.findOneByGuestToken(result.guestToken!);
     expect(lookup.id).toBe(result.id);

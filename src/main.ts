@@ -14,14 +14,40 @@ import { AllConfigType } from './config/config.type';
 import { ResolvePromisesInterceptor } from './utils/serializer.interceptor';
 import { randomUUID } from 'crypto';
 
+function corsOriginAllowed(
+  origin: string | undefined,
+  callback: (err: Error | null, allow?: boolean) => void,
+) {
+  if (!origin) {
+    callback(null, true);
+    return;
+  }
+  const extra = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (extra.includes(origin)) {
+    callback(null, true);
+    return;
+  }
+  try {
+    const hostname = new URL(origin).hostname;
+    const allowed =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.endsWith('.alligators.dev');
+    callback(null, allowed);
+    return;
+  } catch {
+    callback(null, false);
+  }
+}
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    cors: true,
     rawBody: true,
   });
-  // Ensure browser tools (portal explorer) can fetch OpenAPI JSON cross-origin.
-  // Nest `cors: true` covers /api/*; Swagger /docs-json needs the same headers.
-  app.enableCors({ origin: true });
+  app.enableCors({ origin: corsOriginAllowed });
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
   const configService = app.get(ConfigService<AllConfigType>);
 

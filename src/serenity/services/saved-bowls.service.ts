@@ -78,6 +78,8 @@ export class SavedBowlsService {
       addons: dto.addons,
       savedNote: dto.savedNote ?? '',
       subtitle: dto.subtitle ?? null,
+      menuItemId: dto.menuItemId ?? null,
+      diySelections: dto.diySelections ?? null,
     };
   }
 }

@@ -26,6 +26,7 @@ export function toMenuItemDto(item: MenuItemEntity) {
     extras: item.extras ?? undefined,
     isCustomizable: item.isCustomizable,
     inStock: item.inStock,
+    stockQty: item.stockQty ?? null,
     dietaryTags: tags.dietaryTags,
     allergens: tags.allergens,
     dietPreferenceIds: tags.dietPreferenceIds,
@@ -177,6 +178,8 @@ export function toSavedBowlDto(bowl: SavedBowlEntity) {
     addons: bowl.addons,
     savedNote: bowl.savedNote,
     subtitle: bowl.subtitle ?? undefined,
+    menuItemId: bowl.menuItemId ?? undefined,
+    diySelections: bowl.diySelections ?? undefined,
   };
 }
 

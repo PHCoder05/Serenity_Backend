@@ -143,6 +143,7 @@ describe('PetpoojaOrderMapper', () => {
     expect(isStatusProgression('dispatched', 'accepted')).toBe(false);
     expect(isStatusProgression('delivered', 'cancelled')).toBe(true);
     expect(isStatusProgression('cancelled', 'accepted')).toBe(false);
+    expect(isStatusProgression('cancelled', 'cancelled')).toBe(false);
   });
 
   it('should emit order-level Discount details for coupon and loyalty', () => {
