@@ -7,10 +7,10 @@ import {
   NotFoundException,
   Optional,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { createHash, randomBytes } from 'crypto';
-import { In, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
 import { AllConfigType } from '../../config/config.type';
 import { AuthService } from '../../auth/auth.service';
 import { normalizePhone } from '../../auth/utils/phone.util';
@@ -83,6 +83,9 @@ export class OrdersService {
     private readonly authService: AuthService,
     private readonly loyaltySettings: LoyaltySettingsService,
     private readonly configService: ConfigService<AllConfigType>,
+    @Optional()
+    @InjectDataSource()
+    private readonly dataSource?: DataSource,
     @Optional()
     private readonly petpoojaOrderOutbound?: PetpoojaOrderOutboundService,
   ) {}
@@ -215,36 +218,78 @@ export class OrdersService {
       ? createHash('sha256').update(guestToken).digest('hex')
       : null;
 
+    const orderPayload = {
+      id: orderId,
+      userId: resolvedUserId,
+      status: 'confirmed' as const,
+      orderedAt: new Date(),
+      itemSummary: firstItem
+        ? `${firstItem.name} x ${firstItem.quantity}`
+        : 'Serenity order',
+      note: dto.note ?? '',
+      total: summary.total,
+      quantity,
+      subtotal: summary.subtotal,
+      couponDiscount: summary.couponDiscount,
+      gst: summary.gst,
+      loyaltyDiscount: summary.loyaltyDiscount,
+      loyaltyPointsRedeemed: summary.loyaltyPointsRedeemed,
+      amountPaid: dto.paymentMethod === 'COD' ? 0 : summary.total,
+      paidVia: dto.paymentMethod,
+      paymentIntentId,
+      idempotencyKey: key,
+      idempotencyFingerprint: fingerprint,
+      outletId: outlet.id,
+      guestTokenHash,
+      guestPhone,
+      isGuestCheckout: isGuest,
+    };
+
     let order: SerenityOrderEntity;
     try {
-      order = await this.orderRepository.save(
-        this.orderRepository.create({
-          id: orderId,
-          userId: resolvedUserId,
-          status: 'confirmed',
-          orderedAt: new Date(),
-          itemSummary: firstItem
-            ? `${firstItem.name} x ${firstItem.quantity}`
-            : 'Serenity order',
-          note: dto.note ?? '',
-          total: summary.total,
-          quantity,
-          subtotal: summary.subtotal,
-          couponDiscount: summary.couponDiscount,
-          gst: summary.gst,
-          loyaltyDiscount: summary.loyaltyDiscount,
-          loyaltyPointsRedeemed: summary.loyaltyPointsRedeemed,
-          amountPaid: dto.paymentMethod === 'COD' ? 0 : summary.total,
-          paidVia: dto.paymentMethod,
-          paymentIntentId,
-          idempotencyKey: key,
-          idempotencyFingerprint: fingerprint,
-          outletId: outlet.id,
-          guestTokenHash,
-          guestPhone,
-          isGuestCheckout: isGuest,
-        }),
-      );
+      const persist = async (
+        orderRepo: Repository<SerenityOrderEntity>,
+        lineRepo: Repository<OrderLineItemEntity>,
+        menuRepo: Repository<MenuItemEntity>,
+      ) => {
+        const savedOrder = await orderRepo.save(orderRepo.create(orderPayload));
+        await lineRepo.save(
+          summary.publicItems.map((line) =>
+            lineRepo.create({
+              orderId: savedOrder.id,
+              title: line.name,
+              menuItemId: line.itemId,
+              detail: line.detail ?? null,
+              quantity: line.quantity,
+              linePrice: line.lineTotal,
+              ingredients: line.ingredients,
+            }),
+          ),
+        );
+        await this.reserveStock(priced, menuRepo);
+        return savedOrder;
+      };
+
+      if (this.dataSource) {
+        order = await this.dataSource.transaction((manager) =>
+          persist(
+            manager.getRepository(SerenityOrderEntity),
+            manager.getRepository(OrderLineItemEntity),
+            manager.getRepository(MenuItemEntity),
+          ),
+        );
+      } else {
+        try {
+          order = await persist(
+            this.orderRepository,
+            this.lineItemRepository,
+            this.menuRepository,
+          );
+        } catch (error) {
+          await this.orderRepository.delete(orderId);
+          throw error;
+        }
+      }
     } catch (error) {
       if (this.isUniqueViolation(error)) {
         const raced = await this.findIdempotentOrder(
@@ -257,27 +302,6 @@ export class OrdersService {
           return this.replayOrder(raced, fingerprint, isGuest);
         }
       }
-      throw error;
-    }
-
-    await this.lineItemRepository.save(
-      summary.publicItems.map((line) =>
-        this.lineItemRepository.create({
-          orderId: order.id,
-          title: line.name,
-          menuItemId: line.itemId,
-          detail: line.detail ?? null,
-          quantity: line.quantity,
-          linePrice: line.lineTotal,
-          ingredients: line.ingredients,
-        }),
-      ),
-    );
-
-    try {
-      await this.reserveStock(priced);
-    } catch (error) {
-      await this.orderRepository.delete(order.id);
       throw error;
     }
 
@@ -719,7 +743,10 @@ export class OrdersService {
     });
   }
 
-  private async reserveStock(priced: PricedLine[]) {
+  private async reserveStock(
+    priced: PricedLine[],
+    menuRepo: Repository<MenuItemEntity> = this.menuRepository,
+  ) {
     const reserved: { id: string; quantity: number }[] = [];
     try {
       for (const line of priced) {
@@ -727,7 +754,7 @@ export class OrdersService {
           continue;
         }
         const quantity = Math.trunc(line.quantity);
-        const result = await this.menuRepository
+        const result = await menuRepo
           .createQueryBuilder()
           .update(MenuItemEntity)
           .set({ stockQty: () => `"stockQty" - ${quantity}` })
@@ -743,7 +770,7 @@ export class OrdersService {
         reserved.push({ id: line.itemId, quantity });
       }
     } catch (error) {
-      await this.restoreStock(reserved);
+      await this.restoreStock(reserved, menuRepo);
       throw error;
     }
   }
@@ -768,13 +795,16 @@ export class OrdersService {
     );
   }
 
-  private async restoreStock(rows: { id: string; quantity: number }[]) {
+  private async restoreStock(
+    rows: { id: string; quantity: number }[],
+    menuRepo: Repository<MenuItemEntity> = this.menuRepository,
+  ) {
     for (const row of rows) {
       const quantity = Math.trunc(row.quantity);
       if (!row.id || quantity < 1) {
         continue;
       }
-      await this.menuRepository
+      await menuRepo
         .createQueryBuilder()
         .update(MenuItemEntity)
         .set({ stockQty: () => `"stockQty" + ${quantity}` })

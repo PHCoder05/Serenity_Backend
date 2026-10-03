@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   HttpStatus,
   Injectable,
   NotFoundException,
@@ -42,6 +43,8 @@ const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RATE_WINDOW_MS = 15 * 60 * 1000;
 const OTP_RATE_MAX = 5;
 const OTP_MAX_ATTEMPTS = 5;
+const EMAIL_AUTH_WINDOW_MS = 15 * 60 * 1000;
+const EMAIL_AUTH_MAX = 40;
 
 @Injectable()
 export class AuthService {
@@ -57,6 +60,27 @@ export class AuthService {
     @InjectRepository(SerenityOrderEntity)
     private readonly orderRepository?: Repository<SerenityOrderEntity>,
   ) {}
+
+  private readonly emailAuthHits = new Map<string, number[]>();
+
+  private assertEmailAuthRate(action: string, email: string) {
+    const key = `${action}:${email.trim().toLowerCase()}`;
+    const now = Date.now();
+    const hits = (this.emailAuthHits.get(key) ?? []).filter(
+      (at) => now - at < EMAIL_AUTH_WINDOW_MS,
+    );
+    if (hits.length >= EMAIL_AUTH_MAX) {
+      throw new HttpException(
+        {
+          message: 'Too many attempts; try again later',
+          code: 'AUTH_RATE_LIMITED',
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    hits.push(now);
+    this.emailAuthHits.set(key, hits);
+  }
 
   async requestPhoneOtp(phoneRaw: string) {
     const phone = normalizePhone(phoneRaw);
@@ -296,6 +320,7 @@ export class AuthService {
   }
 
   async validateLogin(loginDto: AuthEmailLoginDto): Promise<LoginResponseDto> {
+    this.assertEmailAuthRate('login', loginDto.email);
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
@@ -450,6 +475,7 @@ export class AuthService {
   }
 
   async register(dto: AuthRegisterLoginDto): Promise<void> {
+    this.assertEmailAuthRate('register', dto.email);
     const user = await this.usersService.create({
       ...dto,
       email: dto.email,
@@ -567,6 +593,7 @@ export class AuthService {
   }
 
   async forgotPassword(email: string): Promise<void> {
+    this.assertEmailAuthRate('forgot', email);
     const user = await this.usersService.findByEmail(email);
 
     if (!user) {

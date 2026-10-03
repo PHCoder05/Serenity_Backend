@@ -2,8 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthProvidersEnum } from './auth-providers.enum';
 
-describe('AuthService phone OTP', () => {
-  function build() {
+function build() {
     const rows: any[] = [];
     const phoneOtpRepository = {
       count: jest.fn(
@@ -31,6 +30,7 @@ describe('AuthService phone OTP', () => {
 
     const usersService = {
       findBySocialIdAndProvider: jest.fn().mockResolvedValue(null),
+      findByEmail: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 42 }),
       findById: jest.fn().mockResolvedValue({
         id: 42,
@@ -67,8 +67,9 @@ describe('AuthService phone OTP', () => {
     );
 
     return { service, phoneOtpRepository, usersService, rows };
-  }
+}
 
+describe('AuthService phone OTP', () => {
   it('should issues OTP and verifies into a session', async () => {
     const prev = process.env.NODE_ENV;
     process.env.NODE_ENV = 'test';
@@ -135,5 +136,20 @@ describe('AuthService phone OTP', () => {
         firstName: 'Ada',
       }),
     );
+  });
+});
+
+describe('AuthService email rate limit', () => {
+  it('should rate-limits forgot-password after 40 hits', async () => {
+    const { service, usersService } = build();
+
+    for (let i = 0; i < 40; i += 1) {
+      await service.forgotPassword('rate@example.com');
+    }
+
+    await expect(
+      service.forgotPassword('rate@example.com'),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(usersService.findByEmail).toHaveBeenCalledTimes(40);
   });
 });
