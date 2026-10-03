@@ -46,12 +46,7 @@ import {
   normalizeIdempotencyKey,
 } from '../orders/order-idempotency';
 
-const CANCELLABLE_ORDER_STATUSES = new Set([
-  'confirmed',
-  'accepted',
-  'preparing',
-  'ready',
-]);
+const CANCELLABLE_ORDER_STATUSES = new Set(['confirmed']);
 
 type PricedLine = {
   itemId: string;
@@ -134,7 +129,7 @@ export class OrdersService {
     }
 
     const isGuest = userId == null;
-    let resolvedUserId = userId;
+    let resolvedUserId: number | null = userId ?? null;
     let guestToken: string | null = null;
     let guestPhone: string | null = null;
 
@@ -152,15 +147,11 @@ export class OrdersService {
         });
       }
       guestPhone = normalizePhone(dto.guest.phone);
-      const phoneUser = await this.authService.ensurePhoneUser(
-        guestPhone,
-        dto.guest.name.trim(),
-      );
-      resolvedUserId = phoneUser.id as number;
+      resolvedUserId = null;
       guestToken = randomBytes(24).toString('hex');
     }
 
-    if (resolvedUserId == null) {
+    if (!isGuest && resolvedUserId == null) {
       throw new BadRequestException({
         message: 'Authentication required',
         code: 'GUEST_CONTACT_REQUIRED',
@@ -168,12 +159,14 @@ export class OrdersService {
     }
 
     const fingerprint = fingerprintCreateOrder(dto);
-    const existing = await this.orderRepository.findOne({
-      where: { userId: resolvedUserId, idempotencyKey: key },
-    });
+    const existing = await this.findIdempotentOrder(
+      isGuest,
+      resolvedUserId,
+      guestPhone,
+      key,
+    );
     if (existing) {
-      const replay = await this.resolveIdempotentReplay(existing, fingerprint);
-      return isGuest ? { ...replay, guestToken: null } : replay;
+      return this.replayOrder(existing, fingerprint, isGuest);
     }
 
     const outlet = await this.outletsService.resolveOutletId(dto.outletId);
@@ -186,9 +179,10 @@ export class OrdersService {
     }
 
     const priced = await this.priceItems(dto.items);
-    const loyaltyBalance = isGuest
-      ? 0
-      : await this.getLoyaltyBalance(resolvedUserId);
+    const loyaltyBalance =
+      resolvedUserId == null
+        ? 0
+        : await this.getLoyaltyBalance(resolvedUserId);
     const summary = await this.summarizeQuote(priced, dto.couponCode, {
       requested: isGuest ? undefined : dto.redeemPoints,
       balance: loyaltyBalance,
@@ -203,15 +197,18 @@ export class OrdersService {
         });
       }
       await this.paymentsService.assertSucceededForOrder({
-        userId: resolvedUserId,
+        userId: resolvedUserId as number,
         paymentIntentId,
         orderTotal: summary.total,
+        method: dto.paymentMethod,
       });
-    } else {
-      paymentIntentId = paymentIntentId ?? null;
+    } else if (isGuest) {
+      paymentIntentId = null;
+    } else if (paymentIntentId) {
+      await this.paymentsService.assertIntentUnused(paymentIntentId);
     }
 
-    const orderId = `order-${Date.now()}`;
+    const orderId = `order-${Date.now()}-${randomBytes(3).toString('hex')}`;
     const quantity = dto.items.reduce((sum, item) => sum + item.quantity, 0);
     const firstItem = summary.publicItems[0];
     const guestTokenHash = guestToken
@@ -237,7 +234,7 @@ export class OrdersService {
           gst: summary.gst,
           loyaltyDiscount: summary.loyaltyDiscount,
           loyaltyPointsRedeemed: summary.loyaltyPointsRedeemed,
-          amountPaid: summary.total,
+          amountPaid: dto.paymentMethod === 'COD' ? 0 : summary.total,
           paidVia: dto.paymentMethod,
           paymentIntentId,
           idempotencyKey: key,
@@ -250,12 +247,14 @@ export class OrdersService {
       );
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        const raced = await this.orderRepository.findOne({
-          where: { userId: resolvedUserId, idempotencyKey: key },
-        });
+        const raced = await this.findIdempotentOrder(
+          isGuest,
+          resolvedUserId,
+          guestPhone,
+          key,
+        );
         if (raced) {
-          const replay = await this.resolveIdempotentReplay(raced, fingerprint);
-          return isGuest ? { ...replay, guestToken: null } : replay;
+          return this.replayOrder(raced, fingerprint, isGuest);
         }
       }
       throw error;
@@ -275,29 +274,30 @@ export class OrdersService {
       ),
     );
 
+    try {
+      await this.reserveStock(priced);
+    } catch (error) {
+      await this.orderRepository.delete(order.id);
+      throw error;
+    }
+
     if (summary.couponCode) {
-      await this.couponService.redeem(summary.couponCode);
+      try {
+        await this.couponService.redeem(summary.couponCode);
+      } catch (error) {
+        await this.restoreReservedStock(priced);
+        await this.orderRepository.delete(order.id);
+        throw error;
+      }
     }
 
-    if (!isGuest && summary.loyaltyPointsRedeemed > 0) {
-      await this.loyaltyRepository.save(
-        this.loyaltyRepository.create({
-          userId: resolvedUserId,
-          label: `Redeemed · ${firstItem?.name ?? 'Order'}`,
-          points: -summary.loyaltyPointsRedeemed,
-          orderId: order.id,
-        }),
-      );
-    }
-
-    if (!isGuest && summary.loyaltyPointsEarned > 0) {
-      await this.loyaltyRepository.save(
-        this.loyaltyRepository.create({
-          userId: resolvedUserId,
-          label: firstItem?.name ?? 'Order',
-          points: summary.loyaltyPointsEarned,
-          orderId: order.id,
-        }),
+    if (resolvedUserId != null) {
+      await this.recordLoyaltyForOrder(
+        resolvedUserId,
+        order.id,
+        firstItem?.name ?? 'Order',
+        summary.loyaltyPointsRedeemed,
+        summary.loyaltyPointsEarned,
       );
     }
 
@@ -404,6 +404,7 @@ export class OrdersService {
       }),
     );
 
+    await this.restoreStockForOrder(order.id);
     await this.reverseLoyaltyForCancel(order);
 
     const refundResult = await this.paymentsService.refundForOrderCancel({
@@ -422,7 +423,54 @@ export class OrdersService {
     };
   }
 
+  async settleKitchenCancel(order: SerenityOrderEntity) {
+    await this.restoreStockForOrder(order.id);
+    if (order.userId != null) {
+      await this.reverseLoyaltyForCancel(order);
+    }
+    await this.paymentsService.refundForOrderCancel({
+      paymentIntentId: order.paymentIntentId,
+      reason: order.cancelReason ?? 'Cancelled by kitchen',
+    });
+  }
+
+  private async findIdempotentOrder(
+    isGuest: boolean,
+    userId: number | null,
+    guestPhone: string | null,
+    key: string,
+  ) {
+    if (isGuest) {
+      return this.orderRepository.findOne({
+        where: { guestPhone: guestPhone ?? '', idempotencyKey: key, isGuestCheckout: true },
+      });
+    }
+    return this.orderRepository.findOne({
+      where: { userId: userId as number, idempotencyKey: key },
+    });
+  }
+
+  private async replayOrder(
+    existing: SerenityOrderEntity,
+    fingerprint: string,
+    isGuest: boolean,
+  ) {
+    const replay = await this.resolveIdempotentReplay(existing, fingerprint);
+    if (!isGuest) {
+      return replay;
+    }
+    const guestToken = randomBytes(24).toString('hex');
+    await this.orderRepository.update(existing.id, {
+      guestTokenHash: createHash('sha256').update(guestToken).digest('hex'),
+    });
+    return { ...replay, guestToken };
+  }
+
   private async reverseLoyaltyForCancel(order: SerenityOrderEntity) {
+    if (order.userId == null) {
+      return;
+    }
+    const userId = order.userId;
     const orderTxs = await this.loyaltyRepository.find({
       where: { orderId: order.id },
     });
@@ -442,7 +490,7 @@ export class OrdersService {
     const reversals: Partial<LoyaltyTransactionEntity>[] = [];
     if (order.loyaltyPointsRedeemed > 0) {
       reversals.push({
-        userId: order.userId,
+        userId,
         label: `Redemption refund · ${order.itemSummary}`,
         points: order.loyaltyPointsRedeemed,
         orderId: order.id,
@@ -450,7 +498,7 @@ export class OrdersService {
     }
     if (earned > 0) {
       reversals.push({
-        userId: order.userId,
+        userId,
         label: `Earned points reversed · ${order.itemSummary}`,
         points: -earned,
         orderId: order.id,
@@ -520,6 +568,12 @@ export class OrdersService {
       if (!menuItem.inStock) {
         throw new BadRequestException({
           message: `${menuItem.name} is out of stock`,
+          code: 'MENU_ITEM_OOS',
+        });
+      }
+      if (menuItem.stockQty != null && line.quantity > menuItem.stockQty) {
+        throw new BadRequestException({
+          message: `${menuItem.name} does not have enough stock`,
           code: 'MENU_ITEM_OOS',
         });
       }
@@ -616,6 +670,120 @@ export class OrdersService {
     };
   }
 
+  private async recordLoyaltyForOrder(
+    userId: number,
+    orderId: string,
+    label: string,
+    redeemed: number,
+    earned: number,
+  ) {
+    if (redeemed <= 0 && earned <= 0) {
+      return;
+    }
+
+    await this.loyaltyRepository.manager.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock($1)', [userId]);
+      const result = await manager
+        .createQueryBuilder(LoyaltyTransactionEntity, 'tx')
+        .select('COALESCE(SUM(tx.points), 0)', 'balance')
+        .where('tx.userId = :userId', { userId })
+        .getRawOne<{ balance: string }>();
+      const balance = Number(result?.balance ?? 0);
+      if (redeemed > 0 && balance < redeemed) {
+        throw new BadRequestException({
+          message: 'Not enough loyalty points',
+          code: 'LOYALTY_INSUFFICIENT',
+        });
+      }
+
+      if (redeemed > 0) {
+        await manager.save(
+          manager.create(LoyaltyTransactionEntity, {
+            userId,
+            label: `Redeemed · ${label}`,
+            points: -redeemed,
+            orderId,
+          }),
+        );
+      }
+      if (earned > 0) {
+        await manager.save(
+          manager.create(LoyaltyTransactionEntity, {
+            userId,
+            label,
+            points: earned,
+            orderId,
+          }),
+        );
+      }
+    });
+  }
+
+  private async reserveStock(priced: PricedLine[]) {
+    const reserved: { id: string; quantity: number }[] = [];
+    try {
+      for (const line of priced) {
+        if (line.menuItem.stockQty == null) {
+          continue;
+        }
+        const quantity = Math.trunc(line.quantity);
+        const result = await this.menuRepository
+          .createQueryBuilder()
+          .update(MenuItemEntity)
+          .set({ stockQty: () => `"stockQty" - ${quantity}` })
+          .where('id = :id', { id: line.itemId })
+          .andWhere('"stockQty" >= :qty', { qty: quantity })
+          .execute();
+        if (!result.affected) {
+          throw new BadRequestException({
+            message: `${line.menuItem.name} does not have enough stock`,
+            code: 'MENU_ITEM_OOS',
+          });
+        }
+        reserved.push({ id: line.itemId, quantity });
+      }
+    } catch (error) {
+      await this.restoreStock(reserved);
+      throw error;
+    }
+  }
+
+  private async restoreReservedStock(priced: PricedLine[]) {
+    await this.restoreStock(
+      priced
+        .filter((line) => line.menuItem.stockQty != null)
+        .map((line) => ({ id: line.itemId, quantity: line.quantity })),
+    );
+  }
+
+  private async restoreStockForOrder(orderId: string) {
+    const lines = await this.lineItemRepository.find({ where: { orderId } });
+    await this.restoreStock(
+      lines
+        .filter((line) => line.menuItemId)
+        .map((line) => ({
+          id: line.menuItemId as string,
+          quantity: line.quantity,
+        })),
+    );
+  }
+
+  private async restoreStock(rows: { id: string; quantity: number }[]) {
+    for (const row of rows) {
+      const quantity = Math.trunc(row.quantity);
+      if (!row.id || quantity < 1) {
+        continue;
+      }
+      await this.menuRepository
+        .createQueryBuilder()
+        .update(MenuItemEntity)
+        .set({ stockQty: () => `"stockQty" + ${quantity}` })
+        .where('id = :id', { id: row.id })
+        .andWhere('"stockQty" IS NOT NULL')
+        .execute();
+    }
+  }
+
   private async getLoyaltyBalance(userId: number): Promise<number> {
     const result = await this.loyaltyRepository
       .createQueryBuilder('tx')
@@ -655,6 +823,15 @@ export class OrdersService {
           code: 'MENU_ITEM_OOS',
         });
       }
+      if (
+        menuItem.stockQty != null &&
+        cartItem.quantity > menuItem.stockQty
+      ) {
+        throw new BadRequestException({
+          message: `${menuItem.name} does not have enough stock`,
+          code: 'MENU_ITEM_OOS',
+        });
+      }
 
       if (cartItem.diySelections) {
         if (!menuItem.isCustomizable) {
@@ -667,11 +844,11 @@ export class OrdersService {
         return {
           itemId: menuItem.id,
           menuItem,
-          name: menuItem.name,
+          name: diy.detail,
           quantity: cartItem.quantity,
           unitPrice: diy.unitPrice,
           lineTotal: diy.unitPrice * cartItem.quantity,
-          detail: cartItem.detail?.trim() || diy.detail,
+          detail: diy.detail,
           ingredients: diy.ingredients,
         };
       }

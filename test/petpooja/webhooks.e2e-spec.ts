@@ -4,10 +4,15 @@ import {
   petpoojaAuthHeaders,
   PETPOOJA_REST_ID,
 } from '../utils/constants';
+import { reopenStore } from '../utils/serenity';
 
 describe('Petpooja Webhooks', () => {
   const app = APP_URL;
   const basePath = '/api/v1/petpooja/webhook';
+
+  afterAll(async () => {
+    await reopenStore();
+  });
 
   it('should reject requests without auth headers', () => {
     return request(app)

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { MockPaymentAdapter } from './mock.adapter';
 import { PayuAdapter } from './payu.adapter';
 import { RazorpayAdapter } from './razorpay.adapter';
 import { StripeAdapter } from './stripe.adapter';
@@ -16,6 +17,7 @@ export class PaymentGatewayRegistry {
       razorpay: new RazorpayAdapter(),
       stripe: new StripeAdapter(),
       payu: new PayuAdapter(),
+      mock: new MockPaymentAdapter(),
     };
   }
 

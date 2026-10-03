@@ -64,7 +64,16 @@ export class PaymentGatewayConfigService {
     });
   }
 
-  async getMasked(provider: PaymentProviderId) {
+  async getMasked(provider?: PaymentProviderId) {
+    if (!provider) {
+      const active = await this.resolveActiveOptional();
+      if (!active) {
+        throw new BadRequestException(
+          'Query provider=razorpay|stripe|payu|mock is required when no gateway is active',
+        );
+      }
+      provider = active.provider;
+    }
     if (!PAYMENT_PROVIDERS.includes(provider)) {
       throw new BadRequestException(`Unknown provider: ${provider}`);
     }
@@ -137,6 +146,12 @@ export class PaymentGatewayConfigService {
   }
 
   async activate(provider: PaymentProviderId, updatedByUserId?: number) {
+    if (provider === 'mock' && this.isProductionRuntime()) {
+      throw new BadRequestException(
+        'Mock payment gateway cannot be activated in production',
+      );
+    }
+
     const row = await this.configRepository.findOne({ where: { provider } });
     if (!row && !this.envHasCredentials(provider)) {
       throw new BadRequestException(
@@ -236,8 +251,20 @@ export class PaymentGatewayConfigService {
 
     const fromEnv = (process.env.PAYMENT_GATEWAY || '').toLowerCase();
     if (PAYMENT_PROVIDERS.includes(fromEnv as PaymentProviderId)) {
+      if (fromEnv === 'mock' && this.isProductionRuntime()) {
+        return null;
+      }
       return this.resolveProvider(fromEnv as PaymentProviderId);
     }
+
+    // Dev convenience: online payments work locally without PSP keys.
+    if (
+      !this.isProductionRuntime() &&
+      process.env.PAYMENT_ALLOW_MOCK !== 'false'
+    ) {
+      return this.resolveProvider('mock');
+    }
+
     return null;
   }
 
@@ -278,6 +305,7 @@ export class PaymentGatewayConfigService {
       razorpay: ['keyId', 'keySecret'],
       stripe: ['secretKey', 'publishableKey'],
       payu: ['merchantKey', 'merchantSalt'],
+      mock: [],
     };
     for (const key of required[provider]) {
       if (!credentials[key]?.trim()) {
@@ -307,6 +335,12 @@ export class PaymentGatewayConfigService {
   private envCredentials(
     provider: PaymentProviderId,
   ): GatewayCredentials | null {
+    if (provider === 'mock') {
+      if (this.isProductionRuntime() && process.env.PAYMENT_GATEWAY !== 'mock') {
+        return null;
+      }
+      return { token: process.env.PAYMENT_MOCK_TOKEN || 'mock' };
+    }
     if (provider === 'razorpay') {
       const keyId = process.env.RAZORPAY_KEY_ID;
       const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -323,6 +357,20 @@ export class PaymentGatewayConfigService {
       if (merchantKey && merchantSalt) return { merchantKey, merchantSalt };
     }
     return null;
+  }
+
+  private isProductionRuntime(): boolean {
+    const nodeEnv = (process.env.NODE_ENV || '').toLowerCase();
+    const appEnv = (
+      process.env.APP_ENV ||
+      process.env.NODE_CONFIG_ENV ||
+      ''
+    ).toLowerCase();
+    return (
+      nodeEnv === 'production' ||
+      appEnv === 'production' ||
+      appEnv === 'prod'
+    );
   }
 
   private envWebhookSecret(provider: PaymentProviderId): string | null {

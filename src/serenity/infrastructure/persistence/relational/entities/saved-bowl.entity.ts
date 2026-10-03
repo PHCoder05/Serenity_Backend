@@ -42,6 +42,12 @@ export class SavedBowlEntity extends EntityRelationalHelper {
   @Column({ type: 'varchar', length: 255, nullable: true })
   subtitle: string | null;
 
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  menuItemId: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  diySelections: { base: string; protein: string; fibre: string } | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -3,9 +3,11 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { randomBytes } from 'crypto';
+import { DataSource, In, Repository } from 'typeorm';
 import { EventEntity } from '../infrastructure/persistence/relational/entities/event.entity';
 import { EventBookingEntity } from '../infrastructure/persistence/relational/entities/event-booking.entity';
 import {
@@ -23,6 +25,9 @@ export class EventsService {
     @InjectRepository(EventBookingEntity)
     private readonly bookingRepository: Repository<EventBookingEntity>,
     private readonly paymentsService: PaymentsService,
+    @Optional()
+    @InjectDataSource()
+    private readonly dataSource?: DataSource,
   ) {}
 
   async findAll(query: { audience?: string; status?: string; q?: string }) {
@@ -31,6 +36,7 @@ export class EventsService {
     });
 
     const filtered = events.filter((event) => {
+      if (event.status === 'review' && query.status !== 'review') return false;
       if (query.audience && event.audience !== query.audience) return false;
       if (query.status && event.status !== query.status) return false;
       if (query.q) {
@@ -82,7 +88,6 @@ export class EventsService {
   }
 
   async create(userId: number, dto: CreateEventDto) {
-    const now = new Date();
     const event = await this.eventRepository.save(
       this.eventRepository.create({
         id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -92,7 +97,7 @@ export class EventsService {
         dateLabel: dto.dateLabel,
         location: dto.location,
         audience: dto.audience,
-        status: 'planned',
+        status: 'review',
         image:
           dto.image ??
           'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80',
@@ -100,9 +105,9 @@ export class EventsService {
         menuHighlights: dto.menuHighlights ?? [],
         hostName: `Host ${userId}`,
         maxGuests: dto.maxGuests ?? 100,
-        depositAmountInr: dto.depositAmountInr ?? 0,
+        depositAmountInr: 0,
         waitlistEnabled: dto.waitlistEnabled ?? true,
-        registrationOpenAt: now,
+        registrationOpenAt: null,
         registrationCloseAt: null,
       }),
     );
@@ -130,15 +135,6 @@ export class EventsService {
           code: 'EVENT_DEPOSIT_REQUIRED',
         });
       }
-      const reused = await this.bookingRepository.findOne({
-        where: { paymentIntentId: dto.paymentIntentId },
-      });
-      if (reused) {
-        throw new BadRequestException({
-          message: 'Payment intent already used for a booking',
-          code: 'EVENT_PAYMENT_INTENT_REUSED',
-        });
-      }
       await this.paymentsService.assertSucceededForOrder({
         userId,
         paymentIntentId: dto.paymentIntentId,
@@ -148,7 +144,48 @@ export class EventsService {
       paymentIntentId = dto.paymentIntentId;
     }
 
-    const { remainingSeats } = await this.computeAvailability(event);
+    if (this.dataSource) {
+      return this.dataSource.transaction(async (manager) => {
+        const locked = await manager.getRepository(EventEntity).findOne({
+          where: { id: eventId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!locked) {
+          throw new NotFoundException('Event not found');
+        }
+        return this.insertBooking(
+          manager.getRepository(EventBookingEntity),
+          locked,
+          userId,
+          dto,
+          paymentIntentId,
+          depositPaid,
+        );
+      });
+    }
+
+    return this.insertBooking(
+      this.bookingRepository,
+      event,
+      userId,
+      dto,
+      paymentIntentId,
+      depositPaid,
+    );
+  }
+
+  private async insertBooking(
+    bookingRepository: Repository<EventBookingEntity>,
+    event: EventEntity,
+    userId: number,
+    dto: CreateEventBookingDto,
+    paymentIntentId: string | null,
+    depositPaid: number,
+  ) {
+    const { remainingSeats } = await this.computeAvailability(
+      event,
+      bookingRepository,
+    );
     let status: 'confirmed' | 'waitlisted';
     if (dto.guestCount <= remainingSeats) {
       status = 'confirmed';
@@ -161,12 +198,12 @@ export class EventsService {
       });
     }
 
-    const booking = await this.bookingRepository.save(
-      this.bookingRepository.create({
-        id: `ebk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        eventId,
+    const booking = await bookingRepository.save(
+      bookingRepository.create({
+        id: `ebk-${Date.now()}-${randomBytes(3).toString('hex')}`,
+        eventId: event.id,
         userId,
-        bookingNumber: `BK-${Math.floor(100000 + Math.random() * 900000)}`,
+        bookingNumber: `BK-${100000 + (randomBytes(3).readUIntBE(0, 3) % 900000)}`,
         status,
         name: dto.name,
         email: dto.email,
@@ -194,6 +231,12 @@ export class EventsService {
     }
     booking.status = 'cancelled';
     await this.bookingRepository.save(booking);
+    if (booking.paymentIntentId) {
+      await this.paymentsService.refundForOrderCancel({
+        paymentIntentId: booking.paymentIntentId,
+        reason: 'Event booking cancelled',
+      });
+    }
     return this.toBookingDto(booking);
   }
 
@@ -270,17 +313,45 @@ export class EventsService {
       });
     }
 
-    const { remainingSeats } = await this.computeAvailability(event);
-    if (booking.guestCount > remainingSeats) {
-      throw new BadRequestException({
-        message: 'Not enough seats to confirm waitlisted booking',
-        code: 'EVENT_FULL',
+    const confirm = async () => {
+      const { remainingSeats } = await this.computeAvailability(event);
+      if (booking.guestCount > remainingSeats) {
+        throw new BadRequestException({
+          message: 'Not enough seats to confirm waitlisted booking',
+          code: 'EVENT_FULL',
+        });
+      }
+      booking.status = 'confirmed';
+      await this.bookingRepository.save(booking);
+      return this.toBookingDto(booking);
+    };
+
+    if (this.dataSource) {
+      return this.dataSource.transaction(async (manager) => {
+        const locked = await manager.getRepository(EventEntity).findOne({
+          where: { id: eventId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (!locked) {
+          throw new NotFoundException('Event not found');
+        }
+        const { remainingSeats } = await this.computeAvailability(
+          locked,
+          manager.getRepository(EventBookingEntity),
+        );
+        if (booking.guestCount > remainingSeats) {
+          throw new BadRequestException({
+            message: 'Not enough seats to confirm waitlisted booking',
+            code: 'EVENT_FULL',
+          });
+        }
+        booking.status = 'confirmed';
+        await manager.getRepository(EventBookingEntity).save(booking);
+        return this.toBookingDto(booking);
       });
     }
 
-    booking.status = 'confirmed';
-    await this.bookingRepository.save(booking);
-    return this.toBookingDto(booking);
+    return confirm();
   }
 
   private async requireEvent(id: string) {
@@ -298,6 +369,12 @@ export class EventsService {
   }
 
   private assertRegistrationOpen(event: EventEntity) {
+    if (event.status === 'review') {
+      throw new BadRequestException({
+        message: 'Event is not open for booking',
+        code: 'EVENT_NOT_PUBLISHED',
+      });
+    }
     const now = Date.now();
     if (event.registrationOpenAt && event.registrationOpenAt.getTime() > now) {
       throw new BadRequestException({
@@ -316,11 +393,14 @@ export class EventsService {
     }
   }
 
-  async computeAvailability(event: EventEntity) {
-    const confirmed = await this.bookingRepository.find({
+  async computeAvailability(
+    event: EventEntity,
+    bookingRepository: Repository<EventBookingEntity> = this.bookingRepository,
+  ) {
+    const confirmed = await bookingRepository.find({
       where: { eventId: event.id, status: 'confirmed' },
     });
-    const waitlisted = await this.bookingRepository.find({
+    const waitlisted = await bookingRepository.find({
       where: { eventId: event.id, status: 'waitlisted' },
     });
     const confirmedGuests = confirmed.reduce(

@@ -316,7 +316,7 @@ export class PayuAdapter implements PaymentGatewayAdapter {
       ],
     );
 
-    if (body.hash && expected !== body.hash.toLowerCase()) {
+    if (!body.hash || expected !== body.hash.toLowerCase()) {
       throw new Error('Invalid PayU webhook hash');
     }
 

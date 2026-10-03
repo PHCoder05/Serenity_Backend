@@ -14,8 +14,8 @@ export class SerenityOrderEntity extends EntityRelationalHelper {
   @PrimaryColumn({ type: 'varchar', length: 64 })
   id: string;
 
-  @Column()
-  userId: number;
+  @Column({ type: 'int', nullable: true })
+  userId: number | null;
 
   @Column({ length: 32, default: 'confirmed' })
   status: string;

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { PetpoojaModule } from '../petpooja/petpooja.module';
@@ -66,7 +66,7 @@ import { PaymentOutboxService } from './payments/outbox/payment-outbox.service';
 @Module({
   imports: [
     AuthModule,
-    PetpoojaModule,
+    forwardRef(() => PetpoojaModule),
     TypeOrmModule.forFeature([
       MenuItemEntity,
       DietPreferenceEntity,

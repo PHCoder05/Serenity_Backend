@@ -60,6 +60,9 @@ export class MenuItemEntity extends EntityRelationalHelper {
   @Column({ default: true })
   inStock: boolean;
 
+  @Column({ type: 'int', nullable: true })
+  stockQty: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

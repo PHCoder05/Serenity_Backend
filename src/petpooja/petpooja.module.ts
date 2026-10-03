@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -22,6 +22,7 @@ import { PetpoojaOutboundController } from './controllers/petpooja-outbound.cont
 import { PetpoojaAuthGuard } from './guards/petpooja-auth.guard';
 import { RelationalPetpoojaPersistenceModule } from './infrastructure/persistence/relational/relational-persistence.module';
 import { DocumentPetpoojaPersistenceModule } from './infrastructure/persistence/document/document-persistence.module';
+import { SerenityModule } from '../serenity/serenity.module';
 
 // <database-block>
 const infrastructurePersistenceModule = (databaseConfig() as DatabaseConfig)
@@ -59,6 +60,7 @@ const serenityBridgeProviders = isRelationalDatabase
   imports: [
     HttpModule,
     ConfigModule,
+    forwardRef(() => SerenityModule),
     infrastructurePersistenceModule,
     ...serenityBridgeImports,
   ],

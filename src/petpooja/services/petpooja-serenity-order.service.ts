@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SerenityOrderEntity } from '../../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
@@ -12,6 +12,7 @@ import {
   mapSerenityStatusFromPetpooja,
 } from '../mappers/petpooja-order.mapper';
 import { PetpoojaRepository } from '../infrastructure/persistence/petpooja.repository';
+import { OrdersService } from '../../serenity/services/orders.service';
 
 @Injectable()
 export class PetpoojaSerenityOrderService {
@@ -27,6 +28,9 @@ export class PetpoojaSerenityOrderService {
     @InjectRepository(OutletEntity)
     private readonly outletRepository: Repository<OutletEntity>,
     private readonly petpoojaRepository: PetpoojaRepository,
+    @Optional()
+    @Inject(forwardRef(() => OrdersService))
+    private readonly ordersService?: OrdersService,
   ) {}
 
   async applyOrderCallback(dto: OrderCallbackDto): Promise<boolean> {
@@ -98,6 +102,12 @@ export class PetpoojaSerenityOrderService {
       rawStatus: dto.status,
       note: dto.cancel_reason ?? null,
     });
+
+    if (nextStatus === 'cancelled') {
+      order.status = nextStatus;
+      order.cancelReason = dto.cancel_reason ?? order.cancelReason;
+      await this.ordersService?.settleKitchenCancel(order);
+    }
 
     return true;
   }

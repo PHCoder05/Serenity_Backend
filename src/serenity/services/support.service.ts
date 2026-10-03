@@ -1,10 +1,15 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, In, Repository } from 'typeorm';
 import { normalizePhone } from '../../auth/utils/phone.util';
 import { UserEntity } from '../../users/infrastructure/persistence/relational/entities/user.entity';
 import { UserProfileEntity } from '../infrastructure/persistence/relational/entities/user-profile.entity';
 import { SerenityOrderEntity } from '../infrastructure/persistence/relational/entities/serenity-order.entity';
+import { OrderStatusHistoryEntity } from '../infrastructure/persistence/relational/entities/order-status-history.entity';
 import { toOrderListItemDto } from '../mappers';
 
 @Injectable()
@@ -16,6 +21,8 @@ export class SupportService {
     private readonly profileRepository: Repository<UserProfileEntity>,
     @InjectRepository(SerenityOrderEntity)
     private readonly orderRepository: Repository<SerenityOrderEntity>,
+    @InjectRepository(OrderStatusHistoryEntity)
+    private readonly historyRepository: Repository<OrderStatusHistoryEntity>,
   ) {}
 
   async searchCustomers(qRaw?: string) {
@@ -111,13 +118,61 @@ export class SupportService {
 
     const orders = await qb.getMany();
     return {
-      data: orders.map((order) => ({
-        ...toOrderListItemDto(order),
-        userId: order.userId,
-        guestPhone: order.guestPhone,
-        isGuestCheckout: order.isGuestCheckout,
-        paidVia: order.paidVia,
-      })),
+      data: orders.map((order) => this.toSupportOrder(order)),
+    };
+  }
+
+  async collectPayment(id: string) {
+    const order = await this.requireOpenOrder(id);
+    order.amountPaid = order.total;
+    await this.orderRepository.save(order);
+    return this.toSupportOrder(order);
+  }
+
+  async markServed(id: string) {
+    const order = await this.requireOpenOrder(id);
+    if (order.status !== 'delivered') {
+      const fromStatus = order.status;
+      order.status = 'delivered';
+      await this.orderRepository.save(order);
+      await this.historyRepository.save(
+        this.historyRepository.create({
+          orderId: order.id,
+          fromStatus,
+          toStatus: 'delivered',
+          source: 'counter',
+          note: 'Marked served at the counter',
+        }),
+      );
+    }
+    return this.toSupportOrder(order);
+  }
+
+  private async requireOpenOrder(id: string) {
+    const order = await this.orderRepository.findOne({ where: { id } });
+    if (!order) {
+      throw new NotFoundException({
+        message: 'Order not found',
+        code: 'ORDER_NOT_FOUND',
+      });
+    }
+    if (order.status === 'cancelled') {
+      throw new BadRequestException({
+        message: 'Cancelled orders cannot be updated at the counter',
+        code: 'ORDER_CANCELLED',
+      });
+    }
+    return order;
+  }
+
+  private toSupportOrder(order: SerenityOrderEntity) {
+    return {
+      ...toOrderListItemDto(order),
+      userId: order.userId,
+      guestPhone: order.guestPhone,
+      isGuestCheckout: order.isGuestCheckout,
+      paidVia: order.paidVia,
+      amountPaid: order.amountPaid,
     };
   }
 }

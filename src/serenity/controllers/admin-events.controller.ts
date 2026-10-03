@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../roles/roles.decorator';
@@ -31,5 +31,14 @@ export class AdminEventsController {
   @ApiOkResponse()
   update(@Param('id') id: string, @Body() dto: UpdateEventAdminDto) {
     return this.eventsService.adminUpdate(id, dto);
+  }
+
+  @Post(':id/bookings/:bookingId/confirm')
+  @ApiOkResponse()
+  confirmBooking(
+    @Param('id') id: string,
+    @Param('bookingId') bookingId: string,
+  ) {
+    return this.eventsService.confirmWaitlistedBooking(id, bookingId);
   }
 }

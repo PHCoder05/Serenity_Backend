@@ -98,6 +98,8 @@ export type PetpoojaOrderDocument = HydratedDocument<PetpoojaOrderSchemaClass>;
 @Schema({
   timestamps: true,
   collection: 'petpooja_orders',
+  // PetPooja sends `is_modified`; mongoose reserves `isModified` on documents.
+  suppressReservedKeysWarning: true,
 })
 export class PetpoojaOrderSchemaClass extends EntityDocumentHelper {
   @Prop({ type: String, required: true })

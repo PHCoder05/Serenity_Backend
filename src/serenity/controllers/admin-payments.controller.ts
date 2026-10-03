@@ -43,8 +43,10 @@ export class AdminPaymentsController {
 
   @Get('gateway')
   @ApiOkResponse()
-  getGateway(@Query('provider') provider: string) {
-    return this.gatewayConfig.getMasked(provider as PaymentProviderId);
+  getGateway(@Query('provider') provider?: string) {
+    return this.gatewayConfig.getMasked(
+      provider ? (provider as PaymentProviderId) : undefined,
+    );
   }
 
   @Put('gateway')

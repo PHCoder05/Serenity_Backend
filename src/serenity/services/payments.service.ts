@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   forwardRef,
   GoneException,
   Inject,
@@ -14,8 +15,10 @@ import {
   ConfirmPaymentIntentDto,
   CreatePaymentIntentDto,
 } from '../dto/serenity.dto';
+import { EventBookingEntity } from '../infrastructure/persistence/relational/entities/event-booking.entity';
 import { PaymentIntentEntity } from '../infrastructure/persistence/relational/entities/payment-intent.entity';
 import { PaymentWebhookEventEntity } from '../infrastructure/persistence/relational/entities/payment-webhook-event.entity';
+import { SerenityOrderEntity } from '../infrastructure/persistence/relational/entities/serenity-order.entity';
 import { PaymentGatewayConfigService } from '../payments/gateway/payment-gateway-config.service';
 import { PaymentGatewayRegistry } from '../payments/gateway/payment-gateway.registry';
 import { PaymentProviderId } from '../payments/gateway/payment-gateway.types';
@@ -29,6 +32,10 @@ export class PaymentsService {
     private readonly paymentIntentRepository: Repository<PaymentIntentEntity>,
     @InjectRepository(PaymentWebhookEventEntity)
     private readonly webhookEventRepository: Repository<PaymentWebhookEventEntity>,
+    @InjectRepository(SerenityOrderEntity)
+    private readonly orderRepository: Repository<SerenityOrderEntity>,
+    @InjectRepository(EventBookingEntity)
+    private readonly bookingRepository: Repository<EventBookingEntity>,
     private readonly gatewayConfig: PaymentGatewayConfigService,
     private readonly registry: PaymentGatewayRegistry,
     @Inject(forwardRef(() => OrdersService))
@@ -180,7 +187,9 @@ export class PaymentsService {
       payload.paymentId ||
       payload.mihpayid ||
       payload.paymentIntentId ||
-      intent.externalPaymentRef;
+      payload.mock_payment_id ||
+      intent.externalPaymentRef ||
+      (intent.provider === 'mock' ? intent.externalOrderRef : null);
 
     if (result === 'succeeded') {
       intent.status = 'succeeded';
@@ -206,6 +215,7 @@ export class PaymentsService {
     userId: number;
     paymentIntentId: string;
     orderTotal: number;
+    method?: 'UPI' | 'CARD';
   }) {
     const intent = await this.requireUserIntent(
       input.userId,
@@ -217,13 +227,39 @@ export class PaymentsService {
         code: 'PAYMENT_INTENT_NOT_SUCCEEDED',
       });
     }
+    if (intent.method !== 'UPI' && intent.method !== 'CARD') {
+      throw new BadRequestException({
+        message: 'Cash intents cannot pay an online order or deposit',
+        code: 'PAYMENT_METHOD_MISMATCH',
+      });
+    }
+    if (input.method && intent.method !== input.method) {
+      throw new BadRequestException({
+        message: 'Payment intent method does not match this charge',
+        code: 'PAYMENT_METHOD_MISMATCH',
+      });
+    }
     if (intent.amount !== input.orderTotal) {
       throw new BadRequestException({
         message: 'Payment intent amount does not match order total',
         code: 'PAYMENT_AMOUNT_MISMATCH',
       });
     }
+    await this.assertIntentUnused(input.paymentIntentId);
     return intent;
+  }
+
+  async assertIntentUnused(paymentIntentId: string) {
+    const [order, booking] = await Promise.all([
+      this.orderRepository.findOne({ where: { paymentIntentId } }),
+      this.bookingRepository.findOne({ where: { paymentIntentId } }),
+    ]);
+    if (order || booking) {
+      throw new ConflictException({
+        message: 'Payment intent already used',
+        code: 'PAYMENT_INTENT_REUSED',
+      });
+    }
   }
 
   async applyProviderWebhook(

@@ -39,9 +39,9 @@ import { infinityPagination } from '../utils/infinity-pagination';
 @ApiBearerAuth()
 @Roles(RoleEnum.admin)
 @UseGuards(AuthGuard('jwt'), RolesGuard)
-@ApiTags('Users')
+@ApiTags('Admin Users')
 @Controller({
-  path: 'users',
+  path: 'admin/users',
   version: '1',
 })
 export class UsersController {

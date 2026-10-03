@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../roles/roles.decorator';
@@ -14,6 +14,12 @@ import { OutletsService } from '../services/outlets.service';
 @Controller({ path: 'admin/outlets', version: '1' })
 export class AdminOutletsController {
   constructor(private readonly outletsService: OutletsService) {}
+
+  @Get()
+  @ApiOkResponse()
+  list() {
+    return this.outletsService.listAdmin();
+  }
 
   @Put(':id')
   @ApiOkResponse()

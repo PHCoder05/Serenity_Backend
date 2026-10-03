@@ -120,11 +120,11 @@ describe('Auth Module', () => {
   });
 
   describe('Forgot password', () => {
-    it('should fail for missing email: /api/v1/auth/forgot/password (POST)', () => {
+    it('should stay silent for an unknown email: /api/v1/auth/forgot/password (POST)', () => {
       return request(app)
         .post('/api/v1/auth/forgot/password')
         .send({ email: 'missing.user@example.com' })
-        .expect(422);
+        .expect(204);
     });
 
     it('should send reset email and allow password reset', async () => {
