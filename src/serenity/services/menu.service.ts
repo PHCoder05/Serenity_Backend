@@ -108,28 +108,19 @@ export class MenuService {
       .filter((item): item is MenuItemEntity => Boolean(item))
       .map(toMenuItemDto);
 
-    const livePool = allItems
-      .filter((item) => item.petpoojaItemId && item.inStock)
-      .slice(0, 8);
+    const featured = FEATURED_MENU_IDS.map((id) => byId.get(id))
+      .filter((item): item is MenuItemEntity => Boolean(item))
+      .map(toMenuItemDto);
 
-    const featured = useLive
-      ? livePool.slice(0, 4).map(toMenuItemDto)
-      : FEATURED_MENU_IDS.map((id) => byId.get(id))
-          .filter((item): item is MenuItemEntity => Boolean(item))
-          .map(toMenuItemDto);
+    const recommendations = [...RECENT_ORDER_MENU_IDS]
+      .map((id) => byId.get(id))
+      .filter((item): item is MenuItemEntity => Boolean(item))
+      .map(toMenuItemDto);
 
-    const recommendations = useLive
-      ? livePool.slice(0, 4).map(toMenuItemDto)
-      : [...RECENT_ORDER_MENU_IDS]
-          .map((id) => byId.get(id))
-          .filter((item): item is MenuItemEntity => Boolean(item))
-          .map(toMenuItemDto);
-
-    const mealItems = (
-      useLive
-        ? livePool.filter((item) => item.category === 'Meals').slice(0, 4)
-        : allItems.filter((item) => item.category === 'Meals').slice(0, 4)
-    ).map(toMenuItemDto);
+    const mealItems = allItems
+      .filter((item) => item.category === 'Meals')
+      .slice(0, 4)
+      .map(toMenuItemDto);
 
     return {
       recentOrders,
