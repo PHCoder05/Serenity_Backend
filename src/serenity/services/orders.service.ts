@@ -227,6 +227,9 @@ export class OrdersService {
         ? `${firstItem.name} x ${firstItem.quantity}`
         : 'Serenity order',
       note: dto.note ?? '',
+      fulfillmentType: dto.fulfillmentType ?? null,
+      tableNumber: dto.tableNumber ?? null,
+      deliveryAddress: dto.deliveryAddress,
       total: summary.total,
       quantity,
       subtotal: summary.subtotal,
@@ -271,13 +274,17 @@ export class OrdersService {
       };
 
       if (this.dataSource) {
-        order = await this.dataSource.transaction((manager) =>
-          persist(
+        order = await this.dataSource.transaction(async (manager) => {
+          const saved = await persist(
             manager.getRepository(SerenityOrderEntity),
             manager.getRepository(OrderLineItemEntity),
             manager.getRepository(MenuItemEntity),
-          ),
-        );
+          );
+          if (summary.couponCode) {
+            await this.couponService.redeem(summary.couponCode, manager);
+          }
+          return saved;
+        });
       } else {
         try {
           order = await persist(
@@ -285,6 +292,9 @@ export class OrdersService {
             this.lineItemRepository,
             this.menuRepository,
           );
+          if (summary.couponCode) {
+            await this.couponService.redeem(summary.couponCode);
+          }
         } catch (error) {
           await this.orderRepository.delete(orderId);
           throw error;
@@ -303,16 +313,6 @@ export class OrdersService {
         }
       }
       throw error;
-    }
-
-    if (summary.couponCode) {
-      try {
-        await this.couponService.redeem(summary.couponCode);
-      } catch (error) {
-        await this.restoreReservedStock(priced);
-        await this.orderRepository.delete(order.id);
-        throw error;
-      }
     }
 
     if (resolvedUserId != null) {
@@ -773,14 +773,6 @@ export class OrdersService {
       await this.restoreStock(reserved, menuRepo);
       throw error;
     }
-  }
-
-  private async restoreReservedStock(priced: PricedLine[]) {
-    await this.restoreStock(
-      priced
-        .filter((line) => line.menuItem.stockQty != null)
-        .map((line) => ({ id: line.itemId, quantity: line.quantity })),
-    );
   }
 
   private async restoreStockForOrder(orderId: string) {

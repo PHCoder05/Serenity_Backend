@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { CouponEntity } from '../infrastructure/persistence/relational/entities/coupon.entity';
 import { UpsertCouponDto } from '../dto/serenity.dto';
 
@@ -48,13 +48,19 @@ export class CouponService {
     };
   }
 
-  async redeem(rawCode: string | undefined): Promise<void> {
+  async redeem(
+    rawCode: string | undefined,
+    manager?: EntityManager,
+  ): Promise<void> {
     const code = this.normalizeCode(rawCode);
     if (!code) {
       return;
     }
 
-    const result = await this.couponRepository
+    const repo = manager
+      ? manager.getRepository(CouponEntity)
+      : this.couponRepository;
+    const result = await repo
       .createQueryBuilder()
       .update(CouponEntity)
       .set({ redeemedCount: () => '"redeemedCount" + 1' })

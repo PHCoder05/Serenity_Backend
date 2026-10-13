@@ -22,6 +22,37 @@ export type OrderDiscountInput = {
   amountInr: number;
 };
 
+export type CartFulfillment = {
+  deliveryAddress: string;
+  fulfillmentType?: 'dine-in' | 'deliver' | 'takeaway' | null;
+  tableNumber?: number | null;
+};
+
+/** Existing PetPooja address field — no extra dining statuses or PINs. */
+export function kitchenAddressFromCart(input: CartFulfillment): string {
+  const address = input.deliveryAddress?.trim() ?? '';
+  if (input.fulfillmentType === 'dine-in') {
+    const label =
+      input.tableNumber != null
+        ? `Dine In · Table ${input.tableNumber}`
+        : 'Dine In';
+    if (!address || address === label) {
+      return label;
+    }
+    return `${label} · ${address}`;
+  }
+  if (input.fulfillmentType === 'takeaway') {
+    if (!address) {
+      return 'Takeaway';
+    }
+    if (/takeaway/i.test(address)) {
+      return address;
+    }
+    return `Takeaway · ${address}`;
+  }
+  return address;
+}
+
 export type BuildPetpoojaOrderInput = {
   restId: string;
   orderId: string;

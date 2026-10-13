@@ -11,6 +11,7 @@ import { MailModule } from '../mail/mail.module';
 import { SessionModule } from '../session/session.module';
 import { UsersModule } from '../users/users.module';
 import { PhoneOtpEntity } from './infrastructure/persistence/relational/entities/phone-otp.entity';
+import { AuthRateLimitEntity } from './infrastructure/persistence/relational/entities/auth-rate-limit.entity';
 import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
 
 @Module({
@@ -20,7 +21,11 @@ import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/rela
     PassportModule,
     MailModule,
     JwtModule.register({}),
-    TypeOrmModule.forFeature([PhoneOtpEntity, SerenityOrderEntity]),
+    TypeOrmModule.forFeature([
+      PhoneOtpEntity,
+      AuthRateLimitEntity,
+      SerenityOrderEntity,
+    ]),
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy, JwtRefreshStrategy, AnonymousStrategy],

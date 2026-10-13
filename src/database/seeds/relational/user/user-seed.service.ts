@@ -15,6 +15,10 @@ export class UserSeedService {
   ) {}
 
   async run() {
+    if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+      return;
+    }
+
     const countAdmin = await this.repository.count({
       where: {
         role: {

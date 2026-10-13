@@ -56,6 +56,15 @@ export class SerenityOrderEntity extends EntityRelationalHelper {
   @Column({ type: 'text', default: '' })
   note: string;
 
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  fulfillmentType: 'dine-in' | 'deliver' | 'takeaway' | null;
+
+  @Column({ type: 'int', nullable: true })
+  tableNumber: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  deliveryAddress: string | null;
+
   @Column({ type: 'int' })
   total: number;
 

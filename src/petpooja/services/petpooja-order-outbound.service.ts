@@ -14,6 +14,7 @@ import {
   buildOrderDiscounts,
   buildPetpoojaSaveOrderPayload,
   canPushOrderToPetpooja,
+  kitchenAddressFromCart,
   SerenityOrderLineInput,
 } from '../mappers/petpooja-order.mapper';
 import { PetpoojaRepository } from '../infrastructure/persistence/petpooja.repository';
@@ -125,7 +126,11 @@ export class PetpoojaOrderOutboundService {
       orderId: input.order.id,
       customerName: customer.name,
       customerPhone: customer.phone,
-      deliveryAddress: input.dto.deliveryAddress,
+      deliveryAddress: kitchenAddressFromCart({
+        deliveryAddress: input.dto.deliveryAddress,
+        fulfillmentType: input.dto.fulfillmentType,
+        tableNumber: input.dto.tableNumber,
+      }),
       paymentMethod: input.dto.paymentMethod,
       note: input.dto.note,
       items: lines,

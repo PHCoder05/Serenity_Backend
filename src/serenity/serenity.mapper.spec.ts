@@ -57,6 +57,21 @@ describe('serenity.mapper lifecycle projection', () => {
     ).toBe(true);
   });
 
+  it('should expose cart fulfillment on list and detail', () => {
+    const order = buildOrder({
+      fulfillmentType: 'dine-in',
+      tableNumber: 4,
+      deliveryAddress: 'Dine In · Table 4',
+    });
+    const list = toOrderListItemDto(order);
+    const detail = toOrderDetailDto(order);
+    expect(list.fulfillmentType).toBe('dine-in');
+    expect(list.tableNumber).toBe(4);
+    expect(detail.fulfillmentType).toBe('dine-in');
+    expect(detail.tableNumber).toBe(4);
+    expect(detail.deliveryAddress).toBe('Dine In · Table 4');
+  });
+
   it('should expose rider on order detail when present', () => {
     const detail = toOrderDetailDto(
       buildOrder({ riderName: 'Ravi', riderPhone: '9876543210' }),

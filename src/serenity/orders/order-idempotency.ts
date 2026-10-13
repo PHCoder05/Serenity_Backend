@@ -23,6 +23,8 @@ export function fingerprintCreateOrder(dto: CreateOrderDto): string {
     paymentMethod: dto.paymentMethod,
     paymentIntentId: dto.paymentIntentId ?? null,
     deliveryAddress: dto.deliveryAddress,
+    fulfillmentType: dto.fulfillmentType ?? null,
+    tableNumber: dto.tableNumber ?? null,
     note: dto.note ?? '',
     outletId: dto.outletId ?? null,
     guestPhone: dto.guest?.phone ?? null,

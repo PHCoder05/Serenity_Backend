@@ -123,6 +123,18 @@ export class CreateOrderDto extends OrderQuoteDto {
   @IsString()
   deliveryAddress: string;
 
+  @ApiPropertyOptional({ enum: ['dine-in', 'deliver', 'takeaway'] })
+  @IsOptional()
+  @IsIn(['dine-in', 'deliver', 'takeaway'])
+  fulfillmentType?: 'dine-in' | 'deliver' | 'takeaway';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  tableNumber?: number;
+
   @ApiProperty({ enum: ['UPI', 'CARD', 'COD'] })
   @IsIn(['UPI', 'CARD', 'COD'])
   paymentMethod: 'UPI' | 'CARD' | 'COD';

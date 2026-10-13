@@ -56,4 +56,24 @@ describe('order-idempotency helpers', () => {
     });
     expect(a).not.toBe(b);
   });
+
+  it('should fingerprints include cart fulfillment fields', () => {
+    const dineIn = fingerprintCreateOrder({
+      ...baseDto,
+      fulfillmentType: 'dine-in',
+      tableNumber: 4,
+    });
+    const takeaway = fingerprintCreateOrder({
+      ...baseDto,
+      fulfillmentType: 'takeaway',
+    });
+    const otherTable = fingerprintCreateOrder({
+      ...baseDto,
+      fulfillmentType: 'dine-in',
+      tableNumber: 5,
+    });
+    expect(dineIn).not.toBe(fingerprintCreateOrder(baseDto));
+    expect(dineIn).not.toBe(takeaway);
+    expect(dineIn).not.toBe(otherTable);
+  });
 });

@@ -152,4 +152,40 @@ describe('AuthService email rate limit', () => {
     ).rejects.toMatchObject({ status: 429 });
     expect(usersService.findByEmail).toHaveBeenCalledTimes(40);
   });
+
+  it('should persists email auth hits when a repository is provided', async () => {
+    const hits: Array<{ key: string; hitAt: Date }> = [];
+    const emailAuthRateRepository = {
+      count: jest.fn(async ({ where }: { where: { key: string } }) =>
+        hits.filter((row) => row.key === where.key).length,
+      ),
+      create: jest.fn((row: { key: string; hitAt: Date }) => row),
+      save: jest.fn(async (row: { key: string; hitAt: Date }) => {
+        hits.push(row);
+        return row;
+      }),
+    };
+
+    const { usersService } = build();
+    const service = new AuthService(
+      { signAsync: jest.fn().mockResolvedValue('tok') } as any,
+      usersService as any,
+      { create: jest.fn().mockResolvedValue({ id: 9, hash: 'h' }) } as any,
+      {} as any,
+      {
+        getOrThrow: jest.fn((key: string) => {
+          if (key === 'auth.expires') return '1h';
+          if (key === 'auth.refreshExpires') return '7d';
+          return 'secret';
+        }),
+      } as any,
+      { count: jest.fn(), create: jest.fn(), save: jest.fn(), findOne: jest.fn() } as any,
+      undefined,
+      emailAuthRateRepository as any,
+    );
+
+    await service.forgotPassword('db-rate@example.com');
+    expect(emailAuthRateRepository.save).toHaveBeenCalledTimes(1);
+    expect(hits[0]?.key).toBe('forgot:db-rate@example.com');
+  });
 });
