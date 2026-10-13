@@ -113,6 +113,39 @@ describe('CouponService', () => {
     });
   });
 
+  it('should increments redeemedCount when capacity remains', async () => {
+    const execute = jest.fn().mockResolvedValue({ affected: 1 });
+    const { service, repo } = buildService({ maxRedemptions: 5, redeemedCount: 4 });
+    repo.createQueryBuilder.mockReturnValue({
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute,
+    });
+
+    await expect(service.redeem('SERENITY10')).resolves.toBeUndefined();
+    expect(execute).toHaveBeenCalled();
+  });
+
+  it('should rejects redeem when the limited coupon is exhausted', async () => {
+    const { service, repo } = buildService({
+      maxRedemptions: 5,
+      redeemedCount: 5,
+    });
+    repo.createQueryBuilder.mockReturnValue({
+      update: jest.fn().mockReturnThis(),
+      set: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 0 }),
+    });
+
+    await expect(service.redeem('SERENITY10')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'COUPON_INVALID' }),
+    });
+  });
+
   it('should computes discount helpers', () => {
     const { service, coupon } = buildService({
       type: 'flat',

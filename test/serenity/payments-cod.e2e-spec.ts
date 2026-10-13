@@ -2,10 +2,10 @@ import request from 'supertest';
 import { APP_URL } from '../utils/constants';
 import { firstMenuItemId, loginSerenityDemo } from '../utils/serenity';
 
-describe('Serenity COD payments (WP-S9)', () => {
+describe('Serenity online payments (SOW §12)', () => {
   const app = APP_URL;
 
-  it('should creates and confirms a COD payment intent', async () => {
+  it('should rejects COD payment intents', async () => {
     const { token } = await loginSerenityDemo();
     const itemId = await firstMenuItemId();
 
@@ -23,16 +23,34 @@ describe('Serenity COD payments (WP-S9)', () => {
         items: [{ itemId, quantity: 1 }],
       });
 
+    expect(intentRes.status).toBe(400);
+  });
+
+  it('should creates and confirms a UPI payment intent', async () => {
+    const { token } = await loginSerenityDemo();
+    const itemId = await firstMenuItemId();
+
+    const intentRes = await request(app)
+      .post('/api/v1/payments/intents')
+      .auth(token, { type: 'bearer' })
+      .send({
+        method: 'UPI',
+        items: [{ itemId, quantity: 1 }],
+        fulfillmentType: 'takeaway',
+      });
+
     expect([200, 201]).toContain(intentRes.status);
     const intentId = intentRes.body.id as string;
     expect(intentId).toBeDefined();
 
-    const confirmed = await request(app)
-      .post(`/api/v1/payments/intents/${intentId}/confirm`)
-      .auth(token, { type: 'bearer' })
-      .send({});
-    expect([200, 201]).toContain(confirmed.status);
-    expect(confirmed.body.status).toBe('succeeded');
+    if (intentRes.body.status !== 'succeeded') {
+      const confirmed = await request(app)
+        .post(`/api/v1/payments/intents/${intentId}/confirm`)
+        .auth(token, { type: 'bearer' })
+        .send({});
+      expect([200, 201]).toContain(confirmed.status);
+      expect(confirmed.body.status).toBe('succeeded');
+    }
 
     await request(app)
       .get(`/api/v1/payments/intents/${intentId}`)
@@ -40,6 +58,7 @@ describe('Serenity COD payments (WP-S9)', () => {
       .expect(200)
       .expect(({ body }) => {
         expect(body.status).toBe('succeeded');
+        expect(body.method).toBe('UPI');
       });
   });
 

@@ -12,6 +12,7 @@ describe('EventsService', () => {
     event?: Partial<EventEntity>;
     bookings?: Partial<EventBookingEntity>[];
     payments?: { assertSucceededForOrder: jest.Mock };
+    notifications?: { create: jest.Mock };
   }) {
     const now = new Date();
     const event = {
@@ -34,6 +35,9 @@ describe('EventsService', () => {
       registrationCloseAt: null,
       createdAt: now,
       updatedAt: now,
+      createdByUserId: 1,
+      rejectReason: null,
+      rejectedAt: null,
       ...opts?.event,
     } as EventEntity;
 
@@ -111,10 +115,16 @@ describe('EventsService', () => {
       refundForOrderCancel: jest.fn().mockResolvedValue({ refunded: false }),
     };
 
+    const notificationsService = opts?.notifications ?? {
+      create: jest.fn().mockResolvedValue({}),
+    };
+
     const service = new EventsService(
       eventRepository as any,
       bookingRepository as any,
       paymentsService as any,
+      undefined,
+      notificationsService as any,
     );
 
     return {
@@ -124,6 +134,7 @@ describe('EventsService', () => {
       eventRepository,
       bookingRepository,
       paymentsService,
+      notificationsService,
     };
   }
 
@@ -265,5 +276,40 @@ describe('EventsService', () => {
     expect(availability.confirmedGuests).toBe(4);
     expect(availability.remainingSeats).toBe(6);
     expect(availability.waitlistCount).toBe(1);
+  });
+
+  it('should rejects a host event with a stored reason', async () => {
+    const { service, event, notificationsService } = build({
+      event: { status: 'review' },
+    });
+    const result = await service.adminReject('evt-1', '  Missing date  ');
+    expect(result.status).toBe('rejected');
+    expect(result.rejectReason).toBe('Missing date');
+    expect(event.status).toBe('rejected');
+    expect(notificationsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 1,
+        type: 'event-rejected',
+        body: 'Missing date',
+        meta: { eventId: 'evt-1' },
+      }),
+    );
+  });
+
+  it('should notifies the host when a review event is published', async () => {
+    const { service, notificationsService } = build({
+      event: { status: 'review' },
+    });
+    const result = await service.adminUpdate('evt-1', {
+      status: 'registration-open',
+    });
+    expect(result.status).toBe('registration-open');
+    expect(notificationsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 1,
+        type: 'event-published',
+        meta: { eventId: 'evt-1' },
+      }),
+    );
   });
 });

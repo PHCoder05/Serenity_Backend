@@ -36,6 +36,14 @@ export class EventsController {
     return this.eventsService.listMyBookings(request.user.id);
   }
 
+  @Get('me/hosted')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOkResponse()
+  listHosted(@Request() request) {
+    return this.eventsService.listMyHosted(request.user.id);
+  }
+
   @Get(':id/availability')
   @ApiOkResponse()
   getAvailability(@Param('id') id: string) {

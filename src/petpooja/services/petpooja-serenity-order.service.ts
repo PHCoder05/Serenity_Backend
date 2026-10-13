@@ -109,6 +109,16 @@ export class PetpoojaSerenityOrderService {
       await this.ordersService?.settleKitchenCancel(order);
     }
 
+    await this.ordersService?.notifyUserOrder(
+      order.userId,
+      order.id,
+      nextStatus === 'cancelled' ? 'order-cancelled' : 'order-update',
+      nextStatus === 'cancelled' ? 'Order cancelled' : 'Order update',
+      nextStatus === 'cancelled'
+        ? `Kitchen cancelled ${order.id}.`
+        : `Your order is now ${nextStatus}.`,
+    );
+
     return true;
   }
 

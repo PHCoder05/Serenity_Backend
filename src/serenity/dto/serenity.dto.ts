@@ -7,8 +7,10 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -101,6 +103,11 @@ export class OrderQuoteDto {
   @IsOptional()
   @IsString()
   outletId?: string;
+
+  @ApiPropertyOptional({ enum: ['dine-in', 'deliver', 'takeaway'] })
+  @IsOptional()
+  @IsIn(['dine-in', 'deliver', 'takeaway'])
+  fulfillmentType?: 'dine-in' | 'deliver' | 'takeaway';
 }
 
 export class GuestContactDto {
@@ -123,9 +130,17 @@ export class CreateOrderDto extends OrderQuoteDto {
   @IsString()
   deliveryAddress: string;
 
-  @ApiProperty({ enum: ['UPI', 'CARD', 'COD'] })
-  @IsIn(['UPI', 'CARD', 'COD'])
-  paymentMethod: 'UPI' | 'CARD' | 'COD';
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(120)
+  tableNumber?: number;
+
+  @ApiProperty({ enum: ['UPI', 'CARD'] })
+  @IsIn(['UPI', 'CARD'])
+  paymentMethod: 'UPI' | 'CARD';
 
   @ApiPropertyOptional({
     description: 'Required for UPI/CARD — succeeded payment intent id',
@@ -141,7 +156,7 @@ export class CreateOrderDto extends OrderQuoteDto {
 
   @ApiPropertyOptional({
     type: GuestContactDto,
-    description: 'Required when placing order without JWT (guest COD)',
+    description: 'Ignored — SOW requires a signed-in account for every order',
   })
   @IsOptional()
   @ValidateNested()
@@ -164,6 +179,25 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   defaultAddress?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  pushEnabled?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  emailEnabled?: boolean;
+
+  @ApiPropertyOptional({ example: '1998-04-26' })
+  @IsOptional()
+  @ValidateIf((_, value) => value != null && value !== '')
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'dateOfBirth must be YYYY-MM-DD',
+  })
+  dateOfBirth?: string | null;
 }
 
 export class UpdateDietPreferencesDto {
@@ -348,16 +382,16 @@ export class CancelOrderDto {
 export class CreatePaymentIntentDto {
   @ApiPropertyOptional({
     description:
-      'Required for COD and event deposits. Optional for cart checkout when `items` are sent (server prices).',
+      'Required for event deposits. Optional for cart checkout when `items` are sent (server prices).',
   })
   @IsOptional()
   @IsInt()
   @Min(1)
   amount?: number;
 
-  @ApiProperty({ enum: ['UPI', 'CARD', 'COD'] })
-  @IsIn(['UPI', 'CARD', 'COD'])
-  method: 'UPI' | 'CARD' | 'COD';
+  @ApiProperty({ enum: ['UPI', 'CARD'] })
+  @IsIn(['UPI', 'CARD'])
+  method: 'UPI' | 'CARD';
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -384,6 +418,16 @@ export class CreatePaymentIntentDto {
   @IsInt()
   @Min(0)
   redeemPoints?: number;
+
+  @ApiPropertyOptional({ enum: ['dine-in', 'deliver', 'takeaway'] })
+  @IsOptional()
+  @IsIn(['dine-in', 'deliver', 'takeaway'])
+  fulfillmentType?: 'dine-in' | 'deliver' | 'takeaway';
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  outletId?: string;
 }
 
 export class ConfirmPaymentIntentDto {
@@ -554,6 +598,63 @@ export class UpdateLoyaltyRulesDto {
   earnRate?: number;
 }
 
+export class HomeBannerDto {
+  @ApiProperty()
+  @IsString()
+  id: string;
+
+  @ApiProperty()
+  @IsString()
+  title: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  body?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  image?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  href?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+}
+
+export class UpsertHomeSettingsDto {
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  featuredMenuItemIds?: string[];
+
+  @ApiPropertyOptional({ type: [HomeBannerDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => HomeBannerDto)
+  banners?: HomeBannerDto[];
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  deliveryFeeInr?: number;
+}
+
 export class UpsertHomeMoodDto {
   @ApiPropertyOptional()
   @IsOptional()
@@ -624,4 +725,10 @@ export class UpdateEventAdminDto {
   @IsOptional()
   @IsString()
   registrationCloseAt?: string | null;
+}
+
+export class RejectEventDto {
+  @ApiProperty()
+  @IsString()
+  reason: string;
 }

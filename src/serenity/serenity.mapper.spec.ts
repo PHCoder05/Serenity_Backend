@@ -25,6 +25,7 @@ function buildOrder(
     subtotal: 300,
     couponDiscount: 0,
     gst: 20,
+    deliveryFee: 0,
     amountPaid: 320,
     paidVia: 'UPI',
     paymentIntentId: null,
@@ -51,10 +52,26 @@ describe('serenity.mapper lifecycle projection', () => {
     const detail = toOrderDetailDto(order);
 
     expect(list.statusLabel).toBe('Preparing');
+    expect(list.invoiceNumber).toBe('INV-1');
     expect(
       detail.lifecycle?.timeline.find((step) => step.key === 'preparing')
         ?.current,
     ).toBe(true);
+  });
+
+  it('should expose cart fulfillment on list and detail', () => {
+    const order = buildOrder({
+      fulfillmentType: 'dine-in',
+      tableNumber: 4,
+      deliveryAddress: 'Dine In · Table 4',
+    });
+    const list = toOrderListItemDto(order);
+    const detail = toOrderDetailDto(order);
+    expect(list.fulfillmentType).toBe('dine-in');
+    expect(list.tableNumber).toBe(4);
+    expect(detail.fulfillmentType).toBe('dine-in');
+    expect(detail.tableNumber).toBe(4);
+    expect(detail.deliveryAddress).toBe('Dine In · Table 4');
   });
 
   it('should expose rider on order detail when present', () => {

@@ -2,6 +2,7 @@ import request from 'supertest';
 import { randomUUID } from 'crypto';
 import { APP_URL } from '../utils/constants';
 import {
+  createPaidUpiOrder,
   firstMenuItemId,
   loginAdmin,
   loginSerenityDemo,
@@ -23,31 +24,34 @@ describe('Serenity orders flow (WP-S9)', () => {
     itemId = await firstMenuItemId();
   });
 
-  it('should creates COD order with idempotency, lists, details, cancels, reorders', async () => {
+  it('should creates online order with idempotency, lists, details, invoice, cancels, reorders', async () => {
     const idempotencyKey = randomUUID();
-    const payload = {
-      items: [{ itemId, quantity: 1 }],
-      deliveryAddress: 'E2E Test Address',
-      paymentMethod: 'COD' as const,
+    const createRes = await createPaidUpiOrder({
+      token,
+      itemId,
+      idempotencyKey,
       note: 'wp-s9 e2e',
-    };
-
-    const createRes = await request(app)
-      .post('/api/v1/orders')
-      .auth(token, { type: 'bearer' })
-      .set('x-idempotency-key', idempotencyKey)
-      .send(payload);
+    });
     expectOk(createRes.status);
 
     const orderId = createRes.body.id as string;
     expect(orderId).toBeDefined();
     expect(createRes.body.outletId).toBeDefined();
+    expect(createRes.body.amountPaid).toBe(createRes.body.total);
+    expect(createRes.body.paidVia).toBe('UPI');
 
     const replay = await request(app)
       .post('/api/v1/orders')
       .auth(token, { type: 'bearer' })
       .set('x-idempotency-key', idempotencyKey)
-      .send(payload);
+      .send({
+        items: [{ itemId, quantity: 1 }],
+        fulfillmentType: 'takeaway',
+        deliveryAddress: 'Serenity Café, Rajbaug (Takeaway)',
+        paymentMethod: 'UPI',
+        paymentIntentId: createRes.body.paymentIntentId,
+        note: 'wp-s9 e2e',
+      });
     expectOk(replay.status);
     expect(replay.body.id).toBe(orderId);
 
@@ -55,7 +59,14 @@ describe('Serenity orders flow (WP-S9)', () => {
       .post('/api/v1/orders')
       .auth(token, { type: 'bearer' })
       .set('x-idempotency-key', idempotencyKey)
-      .send({ ...payload, note: 'different payload' })
+      .send({
+        items: [{ itemId, quantity: 1 }],
+        fulfillmentType: 'takeaway',
+        deliveryAddress: 'Serenity Café, Rajbaug (Takeaway)',
+        paymentMethod: 'UPI',
+        paymentIntentId: createRes.body.paymentIntentId,
+        note: 'different payload',
+      })
       .expect(409);
 
     const list = await request(app)
@@ -71,6 +82,14 @@ describe('Serenity orders flow (WP-S9)', () => {
       .auth(token, { type: 'bearer' })
       .expect(200);
     expect(detail.body.lifecycle?.timeline).toBeDefined();
+
+    const invoice = await request(app)
+      .get(`/api/v1/orders/${orderId}/invoice`)
+      .auth(token, { type: 'bearer' })
+      .expect(200);
+    expect(invoice.body.invoiceNumber).toMatch(/^INV-/);
+    expect(invoice.body.html).toContain('Tax Invoice');
+    expect(invoice.body.html).toContain('GSTIN');
 
     const cancelled = await request(app)
       .post(`/api/v1/orders/${orderId}/cancel`)
@@ -93,8 +112,10 @@ describe('Serenity orders flow (WP-S9)', () => {
       .auth(token, { type: 'bearer' })
       .send({
         items: [{ itemId, quantity: 1 }],
-        deliveryAddress: 'E2E',
-        paymentMethod: 'COD',
+        fulfillmentType: 'takeaway',
+        deliveryAddress: 'Serenity Café, Rajbaug (Takeaway)',
+        paymentMethod: 'UPI',
+        paymentIntentId: 'pi-missing',
       })
       .expect(400);
 
@@ -103,56 +124,45 @@ describe('Serenity orders flow (WP-S9)', () => {
     ).toBeTruthy();
   });
 
-  it('should places a guest COD order and lets admin collect then serve', async () => {
+  it('should rejects guest and COD checkout', async () => {
     const { token: adminToken } = await loginAdmin();
 
-    const createRes = await request(app)
+    const guestRes = await request(app)
       .post('/api/v1/orders')
       .set('x-idempotency-key', `guest-e2e-${randomUUID()}`)
       .send({
         items: [{ itemId, quantity: 1 }],
-        deliveryAddress: 'Counter',
-        paymentMethod: 'COD',
+        fulfillmentType: 'takeaway',
+        deliveryAddress: 'Serenity Café, Rajbaug (Takeaway)',
+        paymentMethod: 'UPI',
         guest: { name: 'E2E Guest', phone: '9611111111' },
       });
-    expectOk(createRes.status);
-    expect(createRes.body.amountPaid).toBe(0);
-    expect(createRes.body.paidVia).toBe('COD');
-    expect(createRes.body.guestToken).toBeDefined();
+    expect(guestRes.status).toBe(400);
+    expect(
+      guestRes.body?.code ?? guestRes.body?.message?.code,
+    ).toBe('ACCOUNT_REQUIRED');
 
-    const orderId = createRes.body.id as string;
-    const guestToken = createRes.body.guestToken as string;
-
-    await request(app)
-      .get(`/api/v1/orders/guest/${guestToken}`)
-      .expect(200)
-      .expect(({ body }) => {
-        expect(body.id).toBe(orderId);
-        expect(body.amountPaid).toBe(0);
+    const codRes = await request(app)
+      .post('/api/v1/orders')
+      .auth(token, { type: 'bearer' })
+      .set('x-idempotency-key', `cod-e2e-${randomUUID()}`)
+      .send({
+        items: [{ itemId, quantity: 1 }],
+        fulfillmentType: 'takeaway',
+        deliveryAddress: 'Serenity Café, Rajbaug (Takeaway)',
+        paymentMethod: 'COD',
       });
+    expect(codRes.status).toBe(400);
 
-    await request(app)
-      .post(`/api/v1/admin/support/orders/${orderId}/collect`)
-      .expect(401);
+    const locations = await request(app)
+      .get('/api/v1/menu/delivery-locations')
+      .expect(200);
+    expect(locations.body.data.length).toBeGreaterThan(0);
 
-    const collected = await request(app)
-      .post(`/api/v1/admin/support/orders/${orderId}/collect`)
-      .auth(adminToken, { type: 'bearer' });
-    expectOk(collected.status);
-    expect(collected.body.amountPaid).toBe(collected.body.total);
-
-    const served = await request(app)
-      .post(`/api/v1/admin/support/orders/${orderId}/serve`)
-      .auth(adminToken, { type: 'bearer' });
-    expectOk(served.status);
-    expect(served.body.status).toBe('delivered');
-
-    await request(app)
-      .get(`/api/v1/orders/guest/${guestToken}`)
-      .expect(200)
-      .expect(({ body }) => {
-        expect(body.status).toBe('delivered');
-        expect(body.amountPaid).toBe(body.total);
-      });
+    const feedback = await request(app)
+      .get('/api/v1/admin/support/feedback')
+      .auth(adminToken, { type: 'bearer' })
+      .expect(200);
+    expect(Array.isArray(feedback.body.data)).toBe(true);
   });
 });

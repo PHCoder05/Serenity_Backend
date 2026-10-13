@@ -23,6 +23,8 @@ import { CouponEntity } from './infrastructure/persistence/relational/entities/c
 import { OutletEntity } from './infrastructure/persistence/relational/entities/outlet.entity';
 import { LoyaltySettingsEntity } from './infrastructure/persistence/relational/entities/loyalty-settings.entity';
 import { HomeMoodEntity } from './infrastructure/persistence/relational/entities/home-mood.entity';
+import { HomeSettingsEntity } from './infrastructure/persistence/relational/entities/home-settings.entity';
+import { UserNotificationEntity } from './infrastructure/persistence/relational/entities/user-notification.entity';
 import { MenuController } from './controllers/menu.controller';
 import { OrdersController } from './controllers/orders.controller';
 import { ProfileController } from './controllers/profile.controller';
@@ -58,6 +60,7 @@ import { CouponService } from './services/coupon.service';
 import { OutletsService } from './services/outlets.service';
 import { LoyaltySettingsService } from './services/loyalty-settings.service';
 import { ContentService } from './services/content.service';
+import { NotificationsService } from './services/notifications.service';
 import { SupportService } from './services/support.service';
 import { PaymentGatewayRegistry } from './payments/gateway/payment-gateway.registry';
 import { PaymentGatewayConfigService } from './payments/gateway/payment-gateway-config.service';
@@ -88,6 +91,8 @@ import { PaymentOutboxService } from './payments/outbox/payment-outbox.service';
       OutletEntity,
       LoyaltySettingsEntity,
       HomeMoodEntity,
+      HomeSettingsEntity,
+      UserNotificationEntity,
       UserEntity,
     ]),
   ],
@@ -120,6 +125,7 @@ import { PaymentOutboxService } from './payments/outbox/payment-outbox.service';
     LoyaltyService,
     LoyaltySettingsService,
     ContentService,
+    NotificationsService,
     SupportService,
     StoreService,
     OutletsService,

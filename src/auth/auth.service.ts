@@ -36,6 +36,7 @@ import { SessionService } from '../session/session.service';
 import { StatusEnum } from '../statuses/statuses.enum';
 import { User } from '../users/domain/user';
 import { PhoneOtpEntity } from './infrastructure/persistence/relational/entities/phone-otp.entity';
+import { AuthRateLimitEntity } from './infrastructure/persistence/relational/entities/auth-rate-limit.entity';
 import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
 import { isValidPhone, normalizePhone } from './utils/phone.util';
 
@@ -59,12 +60,35 @@ export class AuthService {
     @Optional()
     @InjectRepository(SerenityOrderEntity)
     private readonly orderRepository?: Repository<SerenityOrderEntity>,
+    @Optional()
+    @InjectRepository(AuthRateLimitEntity)
+    private readonly emailAuthRateRepository?: Repository<AuthRateLimitEntity>,
   ) {}
 
   private readonly emailAuthHits = new Map<string, number[]>();
 
-  private assertEmailAuthRate(action: string, email: string) {
+  private async assertEmailAuthRate(action: string, email: string) {
     const key = `${action}:${email.trim().toLowerCase()}`;
+    if (this.emailAuthRateRepository) {
+      const since = new Date(Date.now() - EMAIL_AUTH_WINDOW_MS);
+      const hits = await this.emailAuthRateRepository.count({
+        where: { key, hitAt: MoreThan(since) },
+      });
+      if (hits >= EMAIL_AUTH_MAX) {
+        throw new HttpException(
+          {
+            message: 'Too many attempts; try again later',
+            code: 'AUTH_RATE_LIMITED',
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      await this.emailAuthRateRepository.save(
+        this.emailAuthRateRepository.create({ key, hitAt: new Date() }),
+      );
+      return;
+    }
+
     const now = Date.now();
     const hits = (this.emailAuthHits.get(key) ?? []).filter(
       (at) => now - at < EMAIL_AUTH_WINDOW_MS,
@@ -116,6 +140,12 @@ export class AuthService {
 
     const provider = process.env.AUTH_OTP_PROVIDER || 'console';
     if (provider === 'console') {
+      if (process.env.NODE_ENV === 'production') {
+        throw new BadRequestException({
+          message: 'Phone OTP is not configured',
+          code: 'OTP_PROVIDER_UNAVAILABLE',
+        });
+      }
       console.info(`[phone-otp] phone=${phone} code=${code}`);
     }
 
@@ -320,7 +350,7 @@ export class AuthService {
   }
 
   async validateLogin(loginDto: AuthEmailLoginDto): Promise<LoginResponseDto> {
-    this.assertEmailAuthRate('login', loginDto.email);
+    await this.assertEmailAuthRate('login', loginDto.email);
     const user = await this.usersService.findByEmail(loginDto.email);
 
     if (!user) {
@@ -475,7 +505,7 @@ export class AuthService {
   }
 
   async register(dto: AuthRegisterLoginDto): Promise<void> {
-    this.assertEmailAuthRate('register', dto.email);
+    await this.assertEmailAuthRate('register', dto.email);
     const user = await this.usersService.create({
       ...dto,
       email: dto.email,
@@ -593,7 +623,7 @@ export class AuthService {
   }
 
   async forgotPassword(email: string): Promise<void> {
-    this.assertEmailAuthRate('forgot', email);
+    await this.assertEmailAuthRate('forgot', email);
     const user = await this.usersService.findByEmail(email);
 
     if (!user) {

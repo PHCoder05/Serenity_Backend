@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../roles/roles.decorator';
 import { RoleEnum } from '../../roles/roles.enum';
 import { RolesGuard } from '../../roles/roles.guard';
-import { UpdateEventAdminDto } from '../dto/serenity.dto';
+import { RejectEventDto, UpdateEventAdminDto } from '../dto/serenity.dto';
 import { EventsService } from '../services';
 
 @ApiBearerAuth()
@@ -31,6 +31,12 @@ export class AdminEventsController {
   @ApiOkResponse()
   update(@Param('id') id: string, @Body() dto: UpdateEventAdminDto) {
     return this.eventsService.adminUpdate(id, dto);
+  }
+
+  @Post(':id/reject')
+  @ApiOkResponse()
+  reject(@Param('id') id: string, @Body() dto: RejectEventDto) {
+    return this.eventsService.adminReject(id, dto.reason);
   }
 
   @Post(':id/bookings/:bookingId/confirm')

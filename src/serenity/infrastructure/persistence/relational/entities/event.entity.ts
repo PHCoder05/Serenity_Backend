@@ -47,6 +47,15 @@ export class EventEntity extends EntityRelationalHelper {
   @Column({ type: 'varchar', length: 120, default: 'Serenity Team' })
   hostName: string;
 
+  @Column({ type: 'int', nullable: true })
+  createdByUserId: number | null;
+
+  @Column({ type: 'text', nullable: true })
+  rejectReason: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  rejectedAt: Date | null;
+
   @Column({ type: 'int', default: 100 })
   maxGuests: number;
 

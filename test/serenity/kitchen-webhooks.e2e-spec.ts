@@ -5,7 +5,12 @@ import {
   PETPOOJA_REST_ID,
   petpoojaAuthHeaders,
 } from '../utils/constants';
-import { firstMenuItemId, reopenStore } from '../utils/serenity';
+import {
+  createPaidUpiOrder,
+  firstMenuItemId,
+  loginSerenityDemo,
+  reopenStore,
+} from '../utils/serenity';
 
 function expectOk(status: number) {
   expect([200, 201]).toContain(status);
@@ -22,20 +27,17 @@ describe('Serenity kitchen webhooks (local PetPooja payloads)', () => {
     await reopenStore();
   });
 
-  it('should walks kitchen timeline and rider from callbacks on a guest order', async () => {
+  it('should walks kitchen timeline and rider from callbacks on a paid order', async () => {
+    const { token } = await loginSerenityDemo();
     const itemId = await firstMenuItemId();
-    const created = await request(app)
-      .post('/api/v1/orders')
-      .set('x-idempotency-key', `kitchen-e2e-${randomUUID()}`)
-      .send({
-        items: [{ itemId, quantity: 1 }],
-        deliveryAddress: 'Counter',
-        paymentMethod: 'COD',
-        guest: { name: 'Kitchen Guest', phone: '9622222222' },
-      });
+    const created = await createPaidUpiOrder({
+      token,
+      itemId,
+      idempotencyKey: `kitchen-e2e-${randomUUID()}`,
+      note: 'kitchen e2e',
+    });
     expectOk(created.status);
     const orderId = created.body.id as string;
-    const guestToken = created.body.guestToken as string;
 
     const steps = [
       { status: '1', expect: 'accepted' },
@@ -63,13 +65,15 @@ describe('Serenity kitchen webhooks (local PetPooja payloads)', () => {
       expect(res.body.success).toBe('1');
     }
 
-    const guest = await request(app).get(`/api/v1/orders/guest/${guestToken}`);
-    expect(guest.status).toBe(200);
-    expect(guest.body.status).toBe('delivered');
-    expect(guest.body.kitchenSyncStatus).toBe('synced');
-    expect(guest.body.rider?.name).toBe('Ravi Rider');
-    expect(guest.body.rider?.phone).toBe('9888888888');
-    const done = (guest.body.lifecycle?.timeline ?? []).filter(
+    const paid = await request(app)
+      .get(`/api/v1/orders/${orderId}`)
+      .auth(token, { type: 'bearer' });
+    expect(paid.status).toBe(200);
+    expect(paid.body.status).toBe('delivered');
+    expect(paid.body.kitchenSyncStatus).toBe('synced');
+    expect(paid.body.rider?.name).toBe('Ravi Rider');
+    expect(paid.body.rider?.phone).toBe('9888888888');
+    const done = (paid.body.lifecycle?.timeline ?? []).filter(
       (row: { done?: boolean }) => row.done,
     );
     expect(done.map((row: { key: string }) => row.key)).toEqual(

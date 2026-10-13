@@ -47,32 +47,34 @@ export class PaymentsService {
   async createIntent(userId: number, dto: CreatePaymentIntentDto) {
     let amount = dto.amount;
 
-    if (dto.method !== 'COD') {
-      if (dto.items?.length) {
-        const quote = await this.ordersService.quote(
-          {
-            items: dto.items,
-            couponCode: dto.couponCode,
-            redeemPoints: dto.redeemPoints,
-          },
-          userId,
-        );
-        amount = quote.total;
-        if (dto.amount != null && dto.amount !== amount) {
-          throw new BadRequestException({
-            message: `Client amount ${dto.amount} does not match server total ${amount}`,
-            code: 'PAYMENT_AMOUNT_MISMATCH',
-          });
-        }
-      } else if (amount == null || amount < 1) {
+    if (dto.method !== 'UPI' && dto.method !== 'CARD') {
+      throw new BadRequestException({
+        message: 'All app orders must be paid online with UPI or card',
+        code: 'ONLINE_PAYMENT_REQUIRED',
+      });
+    }
+
+    if (dto.items?.length) {
+      const quote = await this.ordersService.quote(
+        {
+          items: dto.items,
+          couponCode: dto.couponCode,
+          redeemPoints: dto.redeemPoints,
+          fulfillmentType: dto.fulfillmentType,
+          outletId: dto.outletId,
+        },
+        userId,
+      );
+      amount = quote.total;
+      if (dto.amount != null && dto.amount !== amount) {
         throw new BadRequestException({
-          message: 'items or amount are required for online payment intents',
-          code: 'PAYMENT_AMOUNT_REQUIRED',
+          message: `Client amount ${dto.amount} does not match server total ${amount}`,
+          code: 'PAYMENT_AMOUNT_MISMATCH',
         });
       }
     } else if (amount == null || amount < 1) {
       throw new BadRequestException({
-        message: 'amount is required for COD intents',
+        message: 'items or amount are required for online payment intents',
         code: 'PAYMENT_AMOUNT_REQUIRED',
       });
     }
@@ -94,10 +96,6 @@ export class PaymentsService {
         failureReason: null,
       }),
     );
-
-    if (dto.method === 'COD') {
-      return this.toDto(intent);
-    }
 
     const gateway = await this.gatewayConfig.requireActive();
     const adapter = this.registry.get(gateway.provider);

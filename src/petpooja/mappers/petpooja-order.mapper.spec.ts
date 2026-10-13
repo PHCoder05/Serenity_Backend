@@ -4,6 +4,7 @@ import {
   buildPetpoojaSaveOrderPayload,
   canPushOrderToPetpooja,
   isStatusProgression,
+  kitchenAddressFromCart,
   mapSerenityStatusFromPetpooja,
 } from './petpooja-order.mapper';
 
@@ -187,5 +188,34 @@ describe('PetpoojaOrderMapper', () => {
         price: '20.00',
       },
     ]);
+  });
+
+  it('should put cart fulfillment on the existing kitchen address field', () => {
+    expect(
+      kitchenAddressFromCart({
+        deliveryAddress: 'Guest pickup / dine-in',
+        fulfillmentType: 'dine-in',
+        tableNumber: 4,
+      }),
+    ).toBe('Dine In · Table 4 · Guest pickup / dine-in');
+    expect(
+      kitchenAddressFromCart({
+        deliveryAddress: 'Dine In · Table 4',
+        fulfillmentType: 'dine-in',
+        tableNumber: 4,
+      }),
+    ).toBe('Dine In · Table 4');
+    expect(
+      kitchenAddressFromCart({
+        deliveryAddress: '12 Calm Street',
+        fulfillmentType: 'takeaway',
+      }),
+    ).toBe('Takeaway · 12 Calm Street');
+    expect(
+      kitchenAddressFromCart({
+        deliveryAddress: '12 Calm Street',
+        fulfillmentType: 'deliver',
+      }),
+    ).toBe('12 Calm Street');
   });
 });

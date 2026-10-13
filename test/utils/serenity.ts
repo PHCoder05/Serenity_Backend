@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { randomUUID } from 'crypto';
 import {
   ADMIN_EMAIL,
   ADMIN_PASSWORD,
@@ -65,6 +66,52 @@ export async function reopenStore() {
       reason: 'Open',
     })
     .expect(200);
+}
+
+export async function createPaidUpiOrder(input: {
+  token: string;
+  itemId: string;
+  idempotencyKey?: string;
+  fulfillmentType?: 'dine-in' | 'deliver' | 'takeaway';
+  deliveryAddress?: string;
+  tableNumber?: number;
+  note?: string;
+}) {
+  const intentRes = await request(APP_URL)
+    .post('/api/v1/payments/intents')
+    .auth(input.token, { type: 'bearer' })
+    .send({
+      method: 'UPI',
+      items: [{ itemId: input.itemId, quantity: 1 }],
+      fulfillmentType: input.fulfillmentType ?? 'takeaway',
+    });
+  expect([200, 201]).toContain(intentRes.status);
+  const intentId = intentRes.body.id as string;
+  expect(intentId).toBeDefined();
+
+  if (intentRes.body.status !== 'succeeded') {
+    const confirmed = await request(APP_URL)
+      .post(`/api/v1/payments/intents/${intentId}/confirm`)
+      .auth(input.token, { type: 'bearer' })
+      .send({});
+    expect([200, 201]).toContain(confirmed.status);
+    expect(confirmed.body.status).toBe('succeeded');
+  }
+
+  return request(APP_URL)
+    .post('/api/v1/orders')
+    .auth(input.token, { type: 'bearer' })
+    .set('x-idempotency-key', input.idempotencyKey ?? randomUUID())
+    .send({
+      items: [{ itemId: input.itemId, quantity: 1 }],
+      fulfillmentType: input.fulfillmentType ?? 'takeaway',
+      deliveryAddress:
+        input.deliveryAddress ?? 'Serenity Café, Rajbaug (Takeaway)',
+      ...(input.tableNumber != null ? { tableNumber: input.tableNumber } : {}),
+      paymentMethod: 'UPI',
+      paymentIntentId: intentId,
+      note: input.note,
+    });
 }
 
 export async function firstMenuItemId(): Promise<string> {
