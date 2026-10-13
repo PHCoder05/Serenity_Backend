@@ -641,6 +641,23 @@ export class BroadcastNotificationDto {
   type?: string;
 }
 
+export class RegisterDeviceTokenDto {
+  @ApiProperty({ example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]' })
+  @IsString()
+  token: string;
+
+  @ApiPropertyOptional({ enum: ['ios', 'android', 'web'] })
+  @IsOptional()
+  @IsIn(['ios', 'android', 'web'])
+  platform?: 'ios' | 'android' | 'web';
+}
+
+export class UnregisterDeviceTokenDto {
+  @ApiProperty()
+  @IsString()
+  token: string;
+}
+
 export class HomeBannerDto {
   @ApiProperty()
   @IsString()

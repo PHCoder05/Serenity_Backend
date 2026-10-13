@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -13,7 +14,10 @@ import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { ProfileService } from '../services';
 import { NotificationsService } from '../services/notifications.service';
+import { PushService } from '../services/push.service';
 import {
+  RegisterDeviceTokenDto,
+  UnregisterDeviceTokenDto,
   UpdateDietPreferencesDto,
   UpdateProfileDto,
 } from '../dto/serenity.dto';
@@ -26,6 +30,7 @@ export class ProfileController {
   constructor(
     private readonly profileService: ProfileService,
     private readonly notificationsService: NotificationsService,
+    private readonly pushService: PushService,
   ) {}
 
   @Get()
@@ -38,6 +43,28 @@ export class ProfileController {
   @ApiOkResponse()
   updateProfile(@Request() request, @Body() dto: UpdateProfileDto) {
     return this.profileService.updateProfile(request.user.id, dto);
+  }
+
+  @Post('device-token')
+  @ApiOkResponse()
+  registerDeviceToken(
+    @Request() request,
+    @Body() dto: RegisterDeviceTokenDto,
+  ) {
+    return this.pushService.register(
+      request.user.id,
+      dto.token,
+      dto.platform,
+    );
+  }
+
+  @Delete('device-token')
+  @ApiOkResponse()
+  unregisterDeviceToken(
+    @Request() request,
+    @Body() dto: UnregisterDeviceTokenDto,
+  ) {
+    return this.pushService.unregister(request.user.id, dto.token);
   }
 
   @Get('notifications')

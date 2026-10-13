@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import { IsNull, Repository } from 'typeorm';
 import { UserEntity } from '../../users/infrastructure/persistence/relational/entities/user.entity';
 import { UserNotificationEntity } from '../infrastructure/persistence/relational/entities/user-notification.entity';
+import { PushService } from './push.service';
 
 @Injectable()
 export class NotificationsService {
@@ -13,6 +14,8 @@ export class NotificationsService {
     @Optional()
     @InjectRepository(UserEntity)
     private readonly userRepository?: Repository<UserEntity>,
+    @Optional()
+    private readonly pushService?: PushService,
   ) {}
 
   async create(input: {
@@ -33,6 +36,14 @@ export class NotificationsService {
         readAt: null,
       }),
     );
+    await this.pushService
+      ?.notifyUser(input.userId, {
+        title: input.title,
+        body: input.body,
+        type: input.type,
+        meta: input.meta,
+      })
+      .catch(() => undefined);
     return this.toDto(row);
   }
 
@@ -56,6 +67,12 @@ export class NotificationsService {
     );
     if (rows.length) {
       await this.notificationRepository.save(rows, { chunk: 100 });
+      await this.pushService
+        ?.notifyUsers(
+          users.map((user) => user.id),
+          { title, body, type, meta: { audience: 'all' } },
+        )
+        .catch(() => undefined);
     }
     return { sent: rows.length, type };
   }
