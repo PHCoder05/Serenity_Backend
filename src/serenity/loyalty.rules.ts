@@ -2,7 +2,30 @@ export type LoyaltyRules = {
   pointValueInr: number;
   maxRedeemPercent: number;
   earnRate: number;
+  expiryDays?: number | null;
 };
+
+export function loyaltyExpiryCutoff(
+  expiryDays?: number | null,
+): Date | null {
+  if (!expiryDays || expiryDays <= 0) {
+    return null;
+  }
+  return new Date(Date.now() - expiryDays * 24 * 60 * 60 * 1000);
+}
+
+export function activeLoyaltyPoints<
+  T extends { points: number; createdAt: Date },
+>(transactions: T[], cutoff: Date | null): { balance: number; activity: T[] } {
+  const activity = cutoff
+    ? transactions.filter((tx) => tx.points < 0 || tx.createdAt >= cutoff)
+    : transactions;
+  const balance = Math.max(
+    0,
+    activity.reduce((sum, tx) => sum + tx.points, 0),
+  );
+  return { balance, activity };
+}
 
 export function maxRedeemablePoints(
   balance: number,

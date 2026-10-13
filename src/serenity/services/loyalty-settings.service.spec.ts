@@ -16,6 +16,7 @@ describe('LoyaltySettingsService', () => {
       pointValueInr: 2,
       maxRedeemPercent: 0.25,
       earnRate: 0.1,
+      expiryDays: null,
       source: 'env',
     });
   });

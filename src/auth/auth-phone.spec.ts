@@ -37,6 +37,7 @@ function build() {
         role: { id: 1 },
         provider: AuthProvidersEnum.phone,
         socialId: '9876543210',
+        email: 'ada@serenity.cafe',
       }),
       update: jest.fn(),
     };
@@ -109,6 +110,58 @@ describe('AuthService phone OTP', () => {
     await expect(service.requestPhoneOtp('9876543210')).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'OTP_RATE_LIMITED' }),
     });
+  });
+
+  it('should registers with name email phone and OTP', async () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+    process.env.AUTH_OTP_PROVIDER = 'console';
+
+    const { service, usersService } = build();
+    const requested = await service.requestPhoneOtp('9876543210');
+    const login = await service.registerWithPhone({
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      email: 'ada@serenity.cafe',
+      phone: '9876543210',
+      otpCode: requested.devCode!,
+      password: 'secret1',
+    });
+    expect(login.token).toBe('tok');
+    expect(usersService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'ada@serenity.cafe',
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        provider: AuthProvidersEnum.phone,
+        socialId: '9876543210',
+        password: 'secret1',
+      }),
+    );
+
+    process.env.NODE_ENV = prev;
+  });
+
+  it('should rejects register when the phone is already taken', async () => {
+    const prev = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+    const { service, usersService } = build();
+    usersService.findBySocialIdAndProvider.mockResolvedValue({ id: 9 });
+    const requested = await service.requestPhoneOtp('9876543210');
+    await expect(
+      service.registerWithPhone({
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        email: 'ada@serenity.cafe',
+        phone: '9876543210',
+        otpCode: requested.devCode!,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        errors: { phone: 'phoneAlreadyExists' },
+      }),
+    });
+    process.env.NODE_ENV = prev;
   });
 
   it('should rejects wrong OTP', async () => {

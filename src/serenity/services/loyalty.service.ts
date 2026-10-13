@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { LoyaltyTransactionEntity } from '../infrastructure/persistence/relational/entities/loyalty-transaction.entity';
 import { toLoyaltyActivityDto } from '../mappers';
 import { LoyaltySettingsService } from './loyalty-settings.service';
+import { activeLoyaltyPoints, loyaltyExpiryCutoff } from '../loyalty.rules';
 
 @Injectable()
 export class LoyaltyService {
@@ -14,13 +15,17 @@ export class LoyaltyService {
   ) {}
 
   async getBalance(userId: number): Promise<number> {
-    const result = await this.loyaltyRepository
+    const rules = await this.loyaltySettings.getRules();
+    const cutoff = loyaltyExpiryCutoff(rules.expiryDays);
+    const qb = this.loyaltyRepository
       .createQueryBuilder('tx')
       .select('COALESCE(SUM(tx.points), 0)', 'balance')
-      .where('tx.userId = :userId', { userId })
-      .getRawOne<{ balance: string }>();
-
-    return Number(result?.balance ?? 0);
+      .where('tx.userId = :userId', { userId });
+    if (cutoff) {
+      qb.andWhere('(tx.points < 0 OR tx.createdAt >= :cutoff)', { cutoff });
+    }
+    const result = await qb.getRawOne<{ balance: string }>();
+    return Math.max(0, Number(result?.balance ?? 0));
   }
 
   async getLoyalty(userId: number) {
@@ -28,9 +33,11 @@ export class LoyaltyService {
       where: { userId },
       order: { createdAt: 'DESC' },
     });
-
-    const balance = transactions.reduce((sum, tx) => sum + tx.points, 0);
     const rules = await this.loyaltySettings.getRules();
+    const { balance, activity } = activeLoyaltyPoints(
+      transactions,
+      loyaltyExpiryCutoff(rules.expiryDays),
+    );
 
     return {
       summary: {
@@ -38,9 +45,10 @@ export class LoyaltyService {
         conversionLabel: `${rules.pointValueInr} Rs = 1 Loyalty Point`,
         pointValueInr: rules.pointValueInr,
         maxRedeemPercent: Math.round(rules.maxRedeemPercent * 100),
+        expiryDays: rules.expiryDays ?? null,
         note: 'Points gather quietly with each order and stay ready for a gentler return.',
       },
-      activity: transactions.map(toLoyaltyActivityDto),
+      activity: activity.map(toLoyaltyActivityDto),
     };
   }
 }

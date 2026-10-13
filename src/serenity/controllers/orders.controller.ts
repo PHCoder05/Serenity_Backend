@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Request,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
@@ -94,6 +95,18 @@ export class OrdersController {
   @ApiOkResponse()
   invoice(@Request() request, @Param('id') id: string) {
     return this.ordersService.getInvoice(request.user.id, id);
+  }
+
+  @Get(':id/invoice.pdf')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOkResponse({ description: 'GST tax invoice as PDF' })
+  async invoicePdf(@Request() request, @Param('id') id: string) {
+    const invoice = await this.ordersService.getInvoice(request.user.id, id);
+    return new StreamableFile(Buffer.from(invoice.pdfBase64, 'base64'), {
+      type: 'application/pdf',
+      disposition: `inline; filename="${invoice.invoiceNumber}.pdf"`,
+    });
   }
 
   @Get(':id')
