@@ -25,6 +25,7 @@ import { LoyaltySettingsEntity } from './infrastructure/persistence/relational/e
 import { HomeMoodEntity } from './infrastructure/persistence/relational/entities/home-mood.entity';
 import { HomeSettingsEntity } from './infrastructure/persistence/relational/entities/home-settings.entity';
 import { UserNotificationEntity } from './infrastructure/persistence/relational/entities/user-notification.entity';
+import { DeviceTokenEntity } from './infrastructure/persistence/relational/entities/device-token.entity';
 import { MenuController } from './controllers/menu.controller';
 import { OrdersController } from './controllers/orders.controller';
 import { ProfileController } from './controllers/profile.controller';
@@ -61,6 +62,7 @@ import { OutletsService } from './services/outlets.service';
 import { LoyaltySettingsService } from './services/loyalty-settings.service';
 import { ContentService } from './services/content.service';
 import { NotificationsService } from './services/notifications.service';
+import { PushService } from './services/push.service';
 import { SupportService } from './services/support.service';
 import { PaymentGatewayRegistry } from './payments/gateway/payment-gateway.registry';
 import { PaymentGatewayConfigService } from './payments/gateway/payment-gateway-config.service';
@@ -93,6 +95,7 @@ import { PaymentOutboxService } from './payments/outbox/payment-outbox.service';
       HomeMoodEntity,
       HomeSettingsEntity,
       UserNotificationEntity,
+      DeviceTokenEntity,
       UserEntity,
     ]),
   ],
@@ -126,6 +129,7 @@ import { PaymentOutboxService } from './payments/outbox/payment-outbox.service';
     LoyaltySettingsService,
     ContentService,
     NotificationsService,
+    PushService,
     SupportService,
     StoreService,
     OutletsService,
