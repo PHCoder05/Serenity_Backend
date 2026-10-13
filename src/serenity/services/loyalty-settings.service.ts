@@ -22,6 +22,7 @@ export class LoyaltySettingsService {
         pointValueInr: row.pointValueInr,
         maxRedeemPercent: row.maxRedeemPercent,
         earnRate: row.earnRate,
+        expiryDays: row.expiryDays ?? null,
         source: 'db',
       };
     }
@@ -37,6 +38,7 @@ export class LoyaltySettingsService {
       earnRate: this.configService.getOrThrow('serenity.loyaltyEarnRate', {
         infer: true,
       }),
+      expiryDays: null,
       source: 'env',
     };
   }
@@ -49,6 +51,7 @@ export class LoyaltySettingsService {
         pointValueInr: 1,
         maxRedeemPercent: 0.2,
         earnRate: 0.2,
+        expiryDays: null,
       });
     }
     if (dto.pointValueInr !== undefined) {
@@ -59,6 +62,9 @@ export class LoyaltySettingsService {
     }
     if (dto.earnRate !== undefined) {
       row.earnRate = dto.earnRate;
+    }
+    if (dto.expiryDays !== undefined) {
+      row.expiryDays = dto.expiryDays && dto.expiryDays > 0 ? dto.expiryDays : null;
     }
     await this.settingsRepository.save(row);
     return this.getRules();

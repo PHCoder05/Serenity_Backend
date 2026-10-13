@@ -56,8 +56,14 @@ describe('NotificationsService', () => {
       }),
     };
 
-    const service = new NotificationsService(notificationRepository as any);
-    return { service, store, notificationRepository };
+    const userRepository = {
+      find: jest.fn(async () => [{ id: 1 }, { id: 2 }]),
+    };
+    const service = new NotificationsService(
+      notificationRepository as any,
+      userRepository as any,
+    );
+    return { service, store, notificationRepository, userRepository };
   }
 
   it('creates a notification for a user', async () => {
@@ -128,6 +134,20 @@ describe('NotificationsService', () => {
     expect(read.readAt).toBeTruthy();
     await expect(service.markRead(1, 'missing')).rejects.toBeInstanceOf(
       NotFoundException,
+    );
+  });
+
+  it('broadcasts an in-app notice to every user', async () => {
+    const { service, store } = build();
+    const result = await service.broadcast({
+      title: 'Kitchen closed Sunday',
+      body: 'We reopen Monday 8am',
+    });
+    expect(result.sent).toBe(2);
+    expect(result.type).toBe('broadcast');
+    expect(store).toHaveLength(2);
+    expect(store.every((row) => row.title === 'Kitchen closed Sunday')).toBe(
+      true,
     );
   });
 

@@ -42,6 +42,12 @@ export class CouponEntity extends EntityRelationalHelper {
   @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
+  @Column({ type: 'jsonb', nullable: true })
+  itemIds: string[] | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  categoryIds: string[] | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -21,6 +21,9 @@ export class LoyaltySettingsEntity extends EntityRelationalHelper {
   @Column({ type: 'float', default: 0.2 })
   earnRate: number;
 
+  @Column({ type: 'int', nullable: true })
+  expiryDays: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

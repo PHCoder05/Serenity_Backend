@@ -22,6 +22,7 @@ import { AuthUpdateDto } from './dto/auth-update.dto';
 import { AuthProvidersEnum } from './auth-providers.enum';
 import { SocialInterface } from '../social/interfaces/social.interface';
 import { AuthRegisterLoginDto } from './dto/auth-register-login.dto';
+import { AuthRegisterDto } from './dto/auth-register.dto';
 import { NullableType } from '../utils/types/nullable.type';
 import { LoginResponseDto } from './dto/login-response.dto';
 import { ConfigService } from '@nestjs/config';
@@ -38,6 +39,7 @@ import { User } from '../users/domain/user';
 import { PhoneOtpEntity } from './infrastructure/persistence/relational/entities/phone-otp.entity';
 import { AuthRateLimitEntity } from './infrastructure/persistence/relational/entities/auth-rate-limit.entity';
 import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
+import { UserProfileEntity } from '../serenity/infrastructure/persistence/relational/entities/user-profile.entity';
 import { isValidPhone, normalizePhone } from './utils/phone.util';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -63,6 +65,9 @@ export class AuthService {
     @Optional()
     @InjectRepository(AuthRateLimitEntity)
     private readonly emailAuthRateRepository?: Repository<AuthRateLimitEntity>,
+    @Optional()
+    @InjectRepository(UserProfileEntity)
+    private readonly profileRepository?: Repository<UserProfileEntity>,
   ) {}
 
   private readonly emailAuthHits = new Map<string, number[]>();
@@ -167,6 +172,54 @@ export class AuthService {
     phoneRaw: string,
     code: string,
   ): Promise<LoginResponseDto> {
+    const phone = await this.consumePhoneOtp(phoneRaw, code);
+    const user = await this.ensurePhoneUser(phone);
+    await this.claimGuestOrders(user.id as number, phone);
+    return this.issueSession(user);
+  }
+
+  async registerWithPhone(dto: AuthRegisterDto): Promise<LoginResponseDto> {
+    await this.assertEmailAuthRate('register', dto.email);
+    const phone = await this.consumePhoneOtp(dto.phone, dto.otpCode);
+
+    const existingPhone = await this.usersService.findBySocialIdAndProvider({
+      socialId: phone,
+      provider: AuthProvidersEnum.phone,
+    });
+    if (existingPhone) {
+      throw new UnprocessableEntityException({
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        errors: {
+          phone: 'phoneAlreadyExists',
+        },
+      });
+    }
+
+    const created = await this.usersService.create({
+      email: dto.email,
+      password: dto.password,
+      firstName: dto.firstName.trim(),
+      lastName: dto.lastName.trim(),
+      socialId: phone,
+      provider: AuthProvidersEnum.phone,
+      role: { id: RoleEnum.user },
+      status: { id: StatusEnum.active },
+    });
+
+    const user = await this.usersService.findById(created.id);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    await this.upsertProfilePhone(user.id as number, phone);
+    await this.claimGuestOrders(user.id as number, phone);
+    return this.issueSession(user);
+  }
+
+  private async consumePhoneOtp(
+    phoneRaw: string,
+    code: string,
+  ): Promise<string> {
     const phone = normalizePhone(phoneRaw);
     if (!isValidPhone(phone)) {
       throw new BadRequestException({
@@ -211,10 +264,26 @@ export class AuthService {
 
     row.consumedAt = new Date();
     await this.phoneOtpRepository.save(row);
+    return phone;
+  }
 
-    const user = await this.ensurePhoneUser(phone);
-    await this.claimGuestOrders(user.id as number, phone);
-    return this.issueSession(user);
+  private async upsertProfilePhone(userId: number, phone: string) {
+    if (!this.profileRepository || !Number.isFinite(userId)) {
+      return;
+    }
+    let row = await this.profileRepository.findOne({ where: { userId } });
+    if (!row) {
+      row = this.profileRepository.create({
+        userId,
+        phone,
+        dietPreferenceIds: [],
+        pushEnabled: true,
+        emailEnabled: false,
+      });
+    } else {
+      row.phone = phone;
+    }
+    await this.profileRepository.save(row);
   }
 
   async loginWithFirebaseIdToken(idToken: string): Promise<LoginResponseDto> {
@@ -362,7 +431,7 @@ export class AuthService {
       });
     }
 
-    if (user.provider !== AuthProvidersEnum.email) {
+    if (user.provider !== AuthProvidersEnum.email && !user.password) {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
         errors: {

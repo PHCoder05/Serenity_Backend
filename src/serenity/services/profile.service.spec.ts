@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { ProfileService } from './profile.service';
 
 describe('ProfileService notification prefs', () => {
@@ -50,6 +51,19 @@ describe('ProfileService notification prefs', () => {
     await service.updateProfile(7, { dateOfBirth: '1998-04-26' });
     expect(profile.dateOfBirth).toBe('1998-04-26');
     expect(profileRepository.save).toHaveBeenCalled();
+  });
+
+  it('should stores a campus default address by id or label', async () => {
+    const { service, profile } = build();
+    await service.updateProfile(7, { defaultAddress: 'hostel-a' });
+    expect(profile.defaultAddress).toBe('Hostel Block A');
+  });
+
+  it('should rejects a free-text default address', async () => {
+    const { service } = build();
+    await expect(
+      service.updateProfile(7, { defaultAddress: 'My hostel room 12' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('should persists notification toggles', async () => {

@@ -13,6 +13,7 @@ import { UsersModule } from '../users/users.module';
 import { PhoneOtpEntity } from './infrastructure/persistence/relational/entities/phone-otp.entity';
 import { AuthRateLimitEntity } from './infrastructure/persistence/relational/entities/auth-rate-limit.entity';
 import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
+import { UserProfileEntity } from '../serenity/infrastructure/persistence/relational/entities/user-profile.entity';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/rela
       PhoneOtpEntity,
       AuthRateLimitEntity,
       SerenityOrderEntity,
+      UserProfileEntity,
     ]),
   ],
   controllers: [AuthController],

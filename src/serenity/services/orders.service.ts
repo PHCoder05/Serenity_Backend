@@ -35,9 +35,11 @@ import {
   clampRedeemPoints,
   earnedPointsForTotal,
   LoyaltyRules,
+  loyaltyExpiryCutoff,
   maxRedeemablePoints,
   pointsToDiscount,
 } from '../loyalty.rules';
+import { buildInvoicePdf } from '../invoice-pdf';
 import { PaymentsService } from './payments.service';
 import { CouponService } from './coupon.service';
 import { OutletsService } from './outlets.service';
@@ -488,7 +490,7 @@ export class OrdersService {
   </table>
 </body></html>`;
 
-    return {
+    const payload = {
       invoiceNumber,
       gstin,
       html,
@@ -512,6 +514,27 @@ export class OrdersService {
         detail: line.detail,
       })),
     };
+
+    const pdfBase64 = buildInvoicePdf({
+      invoiceNumber,
+      gstin,
+      orderedAt: placedAt,
+      orderId: order.id,
+      fulfillment,
+      paidVia: order.paidVia,
+      subtotal: order.subtotal,
+      couponDiscount: order.couponDiscount,
+      cgst,
+      sgst,
+      gstRate,
+      deliveryFee: order.deliveryFee ?? 0,
+      loyaltyDiscount: order.loyaltyDiscount ?? 0,
+      total: order.total,
+      amountPaid: order.amountPaid,
+      lines: payload.lines,
+    }).toString('base64');
+
+    return { ...payload, pdfBase64 };
   }
 
   async cancel(userId: number, id: string, reason?: string) {
@@ -825,7 +848,15 @@ export class OrdersService {
     });
 
     const subtotal = priced.reduce((sum, line) => sum + line.lineTotal, 0);
-    const coupon = await this.couponService.apply(couponCode, subtotal);
+    const coupon = await this.couponService.apply(
+      couponCode,
+      subtotal,
+      priced.map((line) => ({
+        itemId: line.itemId,
+        categoryId: line.menuItem.category,
+        lineTotal: line.lineTotal,
+      })),
+    );
     const couponDiscount = coupon.discountInr ? -coupon.discountInr : 0;
     const gst = Math.round(subtotal * gstRate);
     const deliveryFee = redemption?.deliveryFee ?? 0;
@@ -984,13 +1015,17 @@ export class OrdersService {
   }
 
   private async getLoyaltyBalance(userId: number): Promise<number> {
-    const result = await this.loyaltyRepository
+    const rules = await this.loyaltySettings.getRules();
+    const cutoff = loyaltyExpiryCutoff(rules.expiryDays);
+    const qb = this.loyaltyRepository
       .createQueryBuilder('tx')
       .select('COALESCE(SUM(tx.points), 0)', 'balance')
-      .where('tx.userId = :userId', { userId })
-      .getRawOne<{ balance: string }>();
-
-    return Number(result?.balance ?? 0);
+      .where('tx.userId = :userId', { userId });
+    if (cutoff) {
+      qb.andWhere('(tx.points < 0 OR tx.createdAt >= :cutoff)', { cutoff });
+    }
+    const result = await qb.getRawOne<{ balance: string }>();
+    return Math.max(0, Number(result?.balance ?? 0));
   }
 
   private async priceItems(

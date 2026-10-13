@@ -146,6 +146,33 @@ describe('CouponService', () => {
     });
   });
 
+  it('should discounts only matching menu items', async () => {
+    const { service } = buildService({
+      type: 'percent',
+      value: 10,
+      maxDiscount: null,
+      itemIds: ['bowl-1'],
+    });
+    const result = await service.apply('SERENITY10', 400, [
+      { itemId: 'bowl-1', categoryId: 'Meals', lineTotal: 200 },
+      { itemId: 'drink-1', categoryId: 'Drinks', lineTotal: 200 },
+    ]);
+    expect(result.discountInr).toBe(20);
+  });
+
+  it('should rejects when no cart items match the coupon', async () => {
+    const { service } = buildService({
+      itemIds: ['bowl-1'],
+    });
+    await expect(
+      service.apply('SERENITY10', 200, [
+        { itemId: 'drink-1', categoryId: 'Drinks', lineTotal: 200 },
+      ]),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'COUPON_INVALID' }),
+    });
+  });
+
   it('should computes discount helpers', () => {
     const { service, coupon } = buildService({
       type: 'flat',

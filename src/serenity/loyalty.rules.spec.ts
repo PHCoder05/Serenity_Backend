@@ -1,7 +1,9 @@
 import {
+  activeLoyaltyPoints,
   clampRedeemPoints,
   earnedPointsForTotal,
   LoyaltyRules,
+  loyaltyExpiryCutoff,
   maxRedeemablePoints,
   pointsToDiscount,
 } from './loyalty.rules';
@@ -76,6 +78,33 @@ describe('loyalty.rules', () => {
 
     it('should never go negative', () => {
       expect(earnedPointsForTotal(-50, RULES)).toBe(0);
+    });
+  });
+
+  describe('activeLoyaltyPoints', () => {
+    it('should drop expired earn lots and keep later redemptions', () => {
+      const cutoff = new Date('2026-09-01T00:00:00.000Z');
+      const result = activeLoyaltyPoints(
+        [
+          { points: 80, createdAt: new Date('2026-01-01T00:00:00.000Z') },
+          { points: -20, createdAt: new Date('2026-09-15T00:00:00.000Z') },
+          { points: 40, createdAt: new Date('2026-10-01T00:00:00.000Z') },
+        ],
+        cutoff,
+      );
+      expect(result.balance).toBe(20);
+      expect(result.activity).toHaveLength(2);
+    });
+
+    it('should treat missing expiry as keep-all', () => {
+      expect(loyaltyExpiryCutoff(null)).toBeNull();
+      expect(loyaltyExpiryCutoff(0)).toBeNull();
+      expect(
+        activeLoyaltyPoints(
+          [{ points: 10, createdAt: new Date('2020-01-01T00:00:00.000Z') }],
+          null,
+        ).balance,
+      ).toBe(10);
     });
   });
 });

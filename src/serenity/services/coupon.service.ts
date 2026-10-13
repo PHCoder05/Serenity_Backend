@@ -14,6 +14,12 @@ export type CouponDiscountResult = {
   label: string | null;
 };
 
+export type CouponCartItem = {
+  itemId: string;
+  categoryId?: string;
+  lineTotal: number;
+};
+
 @Injectable()
 export class CouponService {
   constructor(
@@ -31,6 +37,7 @@ export class CouponService {
   async apply(
     rawCode: string | undefined,
     subtotal: number,
+    items?: CouponCartItem[],
   ): Promise<CouponDiscountResult> {
     const code = this.normalizeCode(rawCode);
     if (!code) {
@@ -39,12 +46,12 @@ export class CouponService {
 
     const coupon = await this.couponRepository.findOne({ where: { code } });
     this.assertApplicable(coupon, code, subtotal);
-
-    const discount = this.computeDiscount(coupon!, subtotal);
+    const eligible = this.eligibleSubtotal(coupon, subtotal, items);
+    const discount = this.computeDiscount(coupon, eligible);
     return {
       code,
       discountInr: discount,
-      label: this.publicLabel(coupon!),
+      label: this.publicLabel(coupon),
     };
   }
 
@@ -150,6 +157,12 @@ export class CouponService {
     }
     row.maxRedemptions = dto.maxRedemptions ?? null;
     row.isActive = dto.isActive ?? true;
+    if (dto.itemIds !== undefined) {
+      row.itemIds = dto.itemIds?.length ? dto.itemIds : null;
+    }
+    if (dto.categoryIds !== undefined) {
+      row.categoryIds = dto.categoryIds?.length ? dto.categoryIds : null;
+    }
 
     const saved = await this.couponRepository.save(row);
     return this.toAdminDto(saved);
@@ -175,6 +188,34 @@ export class CouponService {
     return coupon.type === 'percent'
       ? `${coupon.value}% off`
       : `₹${coupon.value} off`;
+  }
+
+  private eligibleSubtotal(
+    coupon: CouponEntity,
+    subtotal: number,
+    items?: CouponCartItem[],
+  ): number {
+    const itemIds = coupon.itemIds?.filter(Boolean) ?? [];
+    const categoryIds = coupon.categoryIds?.filter(Boolean) ?? [];
+    if (!itemIds.length && !categoryIds.length) {
+      return subtotal;
+    }
+
+    const matching = (items ?? []).filter((item) => {
+      const itemOk = !itemIds.length || itemIds.includes(item.itemId);
+      const categoryOk =
+        !categoryIds.length ||
+        (!!item.categoryId && categoryIds.includes(item.categoryId));
+      return itemOk && categoryOk;
+    });
+    const eligible = matching.reduce((sum, item) => sum + item.lineTotal, 0);
+    if (eligible <= 0) {
+      throw new BadRequestException({
+        message: `Coupon ${coupon.code} does not apply to these items`,
+        code: 'COUPON_INVALID',
+      });
+    }
+    return eligible;
   }
 
   computeDiscount(coupon: CouponEntity, subtotal: number): number {
@@ -241,6 +282,8 @@ export class CouponService {
       maxRedemptions: row.maxRedemptions,
       redeemedCount: row.redeemedCount,
       isActive: row.isActive,
+      itemIds: row.itemIds ?? [],
+      categoryIds: row.categoryIds ?? [],
       updatedAt: row.updatedAt.toISOString(),
     };
   }

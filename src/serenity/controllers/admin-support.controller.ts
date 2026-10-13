@@ -1,9 +1,11 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../roles/roles.decorator';
 import { RoleEnum } from '../../roles/roles.enum';
 import { RolesGuard } from '../../roles/roles.guard';
+import { BroadcastNotificationDto } from '../dto/serenity.dto';
+import { NotificationsService } from '../services/notifications.service';
 import { SupportService } from '../services/support.service';
 
 @ApiBearerAuth()
@@ -12,7 +14,10 @@ import { SupportService } from '../services/support.service';
 @ApiTags('Admin Support')
 @Controller({ path: 'admin/support', version: '1' })
 export class AdminSupportController {
-  constructor(private readonly supportService: SupportService) {}
+  constructor(
+    private readonly supportService: SupportService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   @Get('customers')
   @ApiOkResponse()
@@ -42,5 +47,11 @@ export class AdminSupportController {
   @ApiOkResponse()
   markServed(@Param('id') id: string) {
     return this.supportService.markServed(id);
+  }
+
+  @Post('notifications')
+  @ApiOkResponse()
+  broadcast(@Body() dto: BroadcastNotificationDto) {
+    return this.notificationsService.broadcast(dto);
   }
 }

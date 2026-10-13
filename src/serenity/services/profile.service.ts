@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../../users/infrastructure/persistence/relational/entities/user.entity';
@@ -8,6 +8,7 @@ import {
   UpdateDietPreferencesDto,
   UpdateProfileDto,
 } from '../dto/serenity.dto';
+import { findCampusLocation } from '../campus-locations';
 
 @Injectable()
 export class ProfileService {
@@ -59,7 +60,19 @@ export class ProfileService {
     const profile = await this.ensureProfile(userId);
     if (dto.phone !== undefined) profile.phone = dto.phone;
     if (dto.defaultAddress !== undefined) {
-      profile.defaultAddress = dto.defaultAddress;
+      const trimmed = dto.defaultAddress.trim();
+      if (!trimmed) {
+        profile.defaultAddress = '';
+      } else {
+        const location = findCampusLocation(trimmed);
+        if (!location) {
+          throw new BadRequestException({
+            message: 'Pick a MIT ADT campus location',
+            code: 'CAMPUS_LOCATION_REQUIRED',
+          });
+        }
+        profile.defaultAddress = location.label;
+      }
     }
     if (dto.pushEnabled !== undefined) profile.pushEnabled = dto.pushEnabled;
     if (dto.emailEnabled !== undefined) profile.emailEnabled = dto.emailEnabled;

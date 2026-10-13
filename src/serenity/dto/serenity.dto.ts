@@ -574,6 +574,24 @@ export class UpsertCouponDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Restrict to these menu item ids',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  itemIds?: string[] | null;
+
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'Restrict to these menu categories',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  categoryIds?: string[] | null;
 }
 
 export class UpdateLoyaltyRulesDto {
@@ -596,6 +614,31 @@ export class UpdateLoyaltyRulesDto {
   @Min(0)
   @Max(1)
   earnRate?: number;
+
+  @ApiPropertyOptional({
+    description:
+      'Earn lots older than this many days stop counting. Null = never expire.',
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value != null)
+  @IsInt()
+  @Min(1)
+  expiryDays?: number | null;
+}
+
+export class BroadcastNotificationDto {
+  @ApiProperty()
+  @IsString()
+  title: string;
+
+  @ApiProperty()
+  @IsString()
+  body: string;
+
+  @ApiPropertyOptional({ example: 'broadcast' })
+  @IsOptional()
+  @IsString()
+  type?: string;
 }
 
 export class HomeBannerDto {
