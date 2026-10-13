@@ -16,6 +16,7 @@ import {
   UpdateEventAdminDto,
 } from '../dto/serenity.dto';
 import { PaymentsService } from './payments.service';
+import { NotificationsService } from './notifications.service';
 
 @Injectable()
 export class EventsService {
@@ -28,6 +29,8 @@ export class EventsService {
     @Optional()
     @InjectDataSource()
     private readonly dataSource?: DataSource,
+    @Optional()
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async findAll(query: { audience?: string; status?: string; q?: string }) {
@@ -37,6 +40,8 @@ export class EventsService {
 
     const filtered = events.filter((event) => {
       if (event.status === 'review' && query.status !== 'review') return false;
+      if (event.status === 'rejected' && query.status !== 'rejected')
+        return false;
       if (query.audience && event.audience !== query.audience) return false;
       if (query.status && event.status !== query.status) return false;
       if (query.q) {
@@ -87,6 +92,20 @@ export class EventsService {
     };
   }
 
+  async listMyHosted(userId: number) {
+    const events = await this.eventRepository.find({
+      where: { createdByUserId: userId },
+      order: { createdAt: 'DESC' },
+    });
+    const data = await Promise.all(
+      events.map(async (event) => {
+        const availability = await this.computeAvailability(event);
+        return this.toDetail(event, availability);
+      }),
+    );
+    return { data };
+  }
+
   async create(userId: number, dto: CreateEventDto) {
     const event = await this.eventRepository.save(
       this.eventRepository.create({
@@ -98,6 +117,9 @@ export class EventsService {
         location: dto.location,
         audience: dto.audience,
         status: 'review',
+        createdByUserId: userId,
+        rejectReason: null,
+        rejectedAt: null,
         image:
           dto.image ??
           'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80',
@@ -255,6 +277,7 @@ export class EventsService {
 
   async adminUpdate(eventId: string, dto: UpdateEventAdminDto) {
     const event = await this.requireEvent(eventId);
+    const previousStatus = event.status;
     if (dto.title !== undefined) event.title = dto.title;
     if (dto.subtitle !== undefined) event.subtitle = dto.subtitle;
     if (dto.description !== undefined) event.description = dto.description;
@@ -276,7 +299,54 @@ export class EventsService {
         ? new Date(dto.registrationCloseAt)
         : null;
     }
+    if (dto.status === 'rejected' && !event.rejectReason) {
+      event.rejectReason = 'Rejected by admin';
+      event.rejectedAt = new Date();
+    }
+    if (dto.status && dto.status !== 'rejected') {
+      event.rejectReason = null;
+      event.rejectedAt = null;
+    }
     await this.eventRepository.save(event);
+    if (previousStatus !== 'rejected' && event.status === 'rejected') {
+      await this.notifyHost(event, {
+        type: 'event-rejected',
+        title: 'Your event was not approved',
+        body: event.rejectReason ?? 'Rejected by admin',
+      });
+    } else if (
+      previousStatus === 'review' &&
+      event.status !== 'review' &&
+      event.status !== 'rejected'
+    ) {
+      await this.notifyHost(event, {
+        type: 'event-published',
+        title: 'Your event was approved',
+        body: `${event.title} is now ${event.status}.`,
+      });
+    }
+    const availability = await this.computeAvailability(event);
+    return this.toDetail(event, availability);
+  }
+
+  async adminReject(eventId: string, reason: string) {
+    const event = await this.requireEvent(eventId);
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      throw new BadRequestException({
+        message: 'A reject reason is required',
+        code: 'EVENT_REJECT_REASON_REQUIRED',
+      });
+    }
+    event.status = 'rejected';
+    event.rejectReason = trimmed;
+    event.rejectedAt = new Date();
+    await this.eventRepository.save(event);
+    await this.notifyHost(event, {
+      type: 'event-rejected',
+      title: 'Your event was not approved',
+      body: trimmed,
+    });
     const availability = await this.computeAvailability(event);
     return this.toDetail(event, availability);
   }
@@ -354,6 +424,20 @@ export class EventsService {
     return confirm();
   }
 
+  private async notifyHost(
+    event: EventEntity,
+    input: { type: string; title: string; body: string },
+  ) {
+    if (!event.createdByUserId || !this.notificationsService) return;
+    await this.notificationsService.create({
+      userId: event.createdByUserId,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      meta: { eventId: event.id },
+    });
+  }
+
   private async requireEvent(id: string) {
     const event = await this.eventRepository.findOne({ where: { id } });
     if (!event) throw new NotFoundException('Event not found');
@@ -369,7 +453,7 @@ export class EventsService {
   }
 
   private assertRegistrationOpen(event: EventEntity) {
-    if (event.status === 'review') {
+    if (event.status === 'review' || event.status === 'rejected') {
       throw new BadRequestException({
         message: 'Event is not open for booking',
         code: 'EVENT_NOT_PUBLISHED',
@@ -456,6 +540,9 @@ export class EventsService {
       agenda: event.agenda,
       menuHighlights: event.menuHighlights,
       hostName: event.hostName,
+      createdByUserId: event.createdByUserId ?? null,
+      rejectReason: event.rejectReason ?? null,
+      rejectedAt: event.rejectedAt?.toISOString() ?? null,
       maxGuests: event.maxGuests,
       waitlistEnabled: event.waitlistEnabled,
       remainingSeats: availability.remainingSeats,

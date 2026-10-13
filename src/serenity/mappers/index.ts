@@ -1,5 +1,6 @@
 export {
   getMenuMeta,
+  invoiceNumberFor,
   toLoyaltyActivityDto,
   toMenuItemDto,
   toOrderDetailDto,

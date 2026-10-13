@@ -13,7 +13,6 @@ import { createHash, randomBytes } from 'crypto';
 import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
 import { AllConfigType } from '../../config/config.type';
 import { AuthService } from '../../auth/auth.service';
-import { normalizePhone } from '../../auth/utils/phone.util';
 import { PetpoojaOrderOutboundService } from '../../petpooja/services/petpooja-order-outbound.service';
 import { MenuItemEntity } from '../infrastructure/persistence/relational/entities/menu-item.entity';
 import { OrderLineItemEntity } from '../infrastructure/persistence/relational/entities/order-line-item.entity';
@@ -26,7 +25,12 @@ import {
   OrderQuoteDto,
   SubmitOrderFeedbackDto,
 } from '../dto/serenity.dto';
-import { toOrderDetailDto, toOrderListItemDto } from '../mappers';
+import {
+  invoiceNumberFor,
+  toOrderDetailDto,
+  toOrderListItemDto,
+} from '../mappers';
+import { NotificationsService } from './notifications.service';
 import {
   clampRedeemPoints,
   earnedPointsForTotal,
@@ -45,6 +49,14 @@ import {
   fingerprintCreateOrder,
   normalizeIdempotencyKey,
 } from '../orders/order-idempotency';
+import {
+  dineInAddress,
+  findCampusLocation,
+  TABLE_MAX,
+  TABLE_MIN,
+  TAKEAWAY_ADDRESS,
+} from '../campus-locations';
+import { ContentService } from './content.service';
 
 const CANCELLABLE_ORDER_STATUSES = new Set(['confirmed']);
 
@@ -88,15 +100,21 @@ export class OrdersService {
     private readonly dataSource?: DataSource,
     @Optional()
     private readonly petpoojaOrderOutbound?: PetpoojaOrderOutboundService,
+    @Optional()
+    private readonly contentService?: ContentService,
+    @Optional()
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async quote(dto: OrderQuoteDto, userId?: number) {
     const outlet = await this.outletsService.resolveOutletId(dto.outletId);
     const priced = await this.priceItems(dto.items);
     const balance = userId ? await this.getLoyaltyBalance(userId) : 0;
+    const deliveryFee = await this.deliveryFeeFor(dto.fulfillmentType);
     const summary = await this.summarizeQuote(priced, dto.couponCode, {
       requested: userId ? dto.redeemPoints : undefined,
       balance,
+      deliveryFee,
     });
 
     return {
@@ -106,7 +124,7 @@ export class OrdersService {
       couponDiscount: summary.couponDiscount,
       couponLabel: summary.couponLabel,
       gst: summary.gst,
-      deliveryFee: 0,
+      deliveryFee: summary.deliveryFee,
       total: summary.total,
       loyaltyPointsEarned: summary.loyaltyPointsEarned,
       loyaltyBalance: balance,
@@ -131,35 +149,25 @@ export class OrdersService {
       });
     }
 
-    const isGuest = userId == null;
-    let resolvedUserId: number | null = userId ?? null;
-    let guestToken: string | null = null;
-    let guestPhone: string | null = null;
-
-    if (isGuest) {
-      if (!dto.guest?.name?.trim() || !dto.guest?.phone?.trim()) {
-        throw new BadRequestException({
-          message: 'guest.name and guest.phone are required without auth',
-          code: 'GUEST_CONTACT_REQUIRED',
-        });
-      }
-      if (dto.paymentMethod !== 'COD') {
-        throw new BadRequestException({
-          message: 'Guest checkout supports COD only',
-          code: 'GUEST_COD_ONLY',
-        });
-      }
-      guestPhone = normalizePhone(dto.guest.phone);
-      resolvedUserId = null;
-      guestToken = randomBytes(24).toString('hex');
-    }
-
-    if (!isGuest && resolvedUserId == null) {
+    if (userId == null) {
       throw new BadRequestException({
-        message: 'Authentication required',
-        code: 'GUEST_CONTACT_REQUIRED',
+        message: 'Sign in to place an order. All app orders are paid online.',
+        code: 'ACCOUNT_REQUIRED',
       });
     }
+
+    if (dto.paymentMethod !== 'UPI' && dto.paymentMethod !== 'CARD') {
+      throw new BadRequestException({
+        message: 'All app orders must be paid online with UPI or card',
+        code: 'ONLINE_PAYMENT_REQUIRED',
+      });
+    }
+
+    const isGuest = false;
+    const resolvedUserId: number | null = userId;
+    const guestToken: string | null = null;
+    const guestPhone: string | null = null;
+    const fulfillment = this.resolveFulfillment(dto);
 
     const fingerprint = fingerprintCreateOrder(dto);
     const existing = await this.findIdempotentOrder(
@@ -186,30 +194,26 @@ export class OrdersService {
       resolvedUserId == null
         ? 0
         : await this.getLoyaltyBalance(resolvedUserId);
+    const deliveryFee = await this.deliveryFeeFor(fulfillment.fulfillmentType);
     const summary = await this.summarizeQuote(priced, dto.couponCode, {
-      requested: isGuest ? undefined : dto.redeemPoints,
+      requested: dto.redeemPoints,
       balance: loyaltyBalance,
+      deliveryFee,
     });
 
-    let paymentIntentId: string | null = dto.paymentIntentId ?? null;
-    if (dto.paymentMethod !== 'COD') {
-      if (!paymentIntentId) {
-        throw new BadRequestException({
-          message: 'paymentIntentId is required for online payments',
-          code: 'PAYMENT_INTENT_REQUIRED',
-        });
-      }
-      await this.paymentsService.assertSucceededForOrder({
-        userId: resolvedUserId as number,
-        paymentIntentId,
-        orderTotal: summary.total,
-        method: dto.paymentMethod,
+    const paymentIntentId = dto.paymentIntentId ?? null;
+    if (!paymentIntentId) {
+      throw new BadRequestException({
+        message: 'paymentIntentId is required for online payments',
+        code: 'PAYMENT_INTENT_REQUIRED',
       });
-    } else if (isGuest) {
-      paymentIntentId = null;
-    } else if (paymentIntentId) {
-      await this.paymentsService.assertIntentUnused(paymentIntentId);
     }
+    await this.paymentsService.assertSucceededForOrder({
+      userId: resolvedUserId as number,
+      paymentIntentId,
+      orderTotal: summary.total,
+      method: dto.paymentMethod,
+    });
 
     const orderId = `order-${Date.now()}-${randomBytes(3).toString('hex')}`;
     const quantity = dto.items.reduce((sum, item) => sum + item.quantity, 0);
@@ -227,17 +231,18 @@ export class OrdersService {
         ? `${firstItem.name} x ${firstItem.quantity}`
         : 'Serenity order',
       note: dto.note ?? '',
-      fulfillmentType: dto.fulfillmentType ?? null,
-      tableNumber: dto.tableNumber ?? null,
-      deliveryAddress: dto.deliveryAddress,
+      fulfillmentType: fulfillment.fulfillmentType,
+      tableNumber: fulfillment.tableNumber,
+      deliveryAddress: fulfillment.deliveryAddress,
       total: summary.total,
       quantity,
       subtotal: summary.subtotal,
       couponDiscount: summary.couponDiscount,
       gst: summary.gst,
+      deliveryFee: summary.deliveryFee,
       loyaltyDiscount: summary.loyaltyDiscount,
       loyaltyPointsRedeemed: summary.loyaltyPointsRedeemed,
-      amountPaid: dto.paymentMethod === 'COD' ? 0 : summary.total,
+      amountPaid: summary.total,
       paidVia: dto.paymentMethod,
       paymentIntentId,
       idempotencyKey: key,
@@ -339,7 +344,35 @@ export class OrdersService {
     });
 
     const detail = toOrderDetailDto(saved as SerenityOrderEntity);
+    await this.notifyUserOrder(
+      resolvedUserId,
+      order.id,
+      'order-placed',
+      'Order confirmed',
+      `Your order is paid and with the kitchen.`,
+    );
     return isGuest ? { ...detail, guestToken } : detail;
+  }
+
+  async notifyUserOrder(
+    userId: number | null | undefined,
+    orderId: string,
+    type: string,
+    title: string,
+    body: string,
+  ) {
+    if (!userId || !this.notificationsService) return;
+    try {
+      await this.notificationsService.create({
+        userId,
+        type,
+        title,
+        body,
+        meta: { orderId },
+      });
+    } catch {
+      // Inbox is best-effort and must not fail the order.
+    }
   }
 
   async findOneByGuestToken(token: string) {
@@ -391,6 +424,94 @@ export class OrdersService {
     });
 
     return toOrderDetailDto(order, history);
+  }
+
+  async getInvoice(userId: number, id: string) {
+    const order = await this.orderRepository.findOne({
+      where: { id, userId },
+    });
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const gstRate = this.configService.getOrThrow('serenity.gstRate', {
+      infer: true,
+    });
+    const gstin =
+      this.configService.get('serenity.gstin', { infer: true }) ??
+      'GSTIN-PENDING';
+    const invoiceNumber = invoiceNumberFor(order.id);
+    const cgst = Math.round(order.gst / 2);
+    const sgst = order.gst - cgst;
+    const placedAt = order.orderedAt.toISOString();
+    const lines = (order.lineItems ?? [])
+      .map(
+        (line) =>
+          `<tr><td>${escapeHtml(line.title)}${line.detail ? `<br/><small>${escapeHtml(line.detail)}</small>` : ''}</td><td>${line.quantity}</td><td>₹${line.linePrice}</td></tr>`,
+      )
+      .join('');
+    const fulfillment =
+      order.fulfillmentType === 'dine-in' && order.tableNumber
+        ? dineInAddress(order.tableNumber)
+        : (order.deliveryAddress ?? TAKEAWAY_ADDRESS);
+
+    const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><title>${invoiceNumber}</title>
+<style>
+  body { font-family: Georgia, serif; color: #18401C; background: #FAF8F4; margin: 0; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .muted { color: #5F6F52; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { text-align: left; padding: 8px 0; border-bottom: 1px solid #E6E0D6; font-size: 14px; }
+  th { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: #8A9A8C; }
+  .totals td { border: 0; }
+  .total { font-weight: 700; }
+</style></head><body>
+  <h1>Tax Invoice</h1>
+  <div class="muted">Serenity Café · MIT ADT, Rajbaug</div>
+  <div class="muted">GSTIN ${escapeHtml(gstin)}</div>
+  <p class="muted">${invoiceNumber} · ${escapeHtml(placedAt.slice(0, 10))} · ${escapeHtml(order.id)}</p>
+  <p class="muted">${escapeHtml(fulfillment)} · Paid via ${escapeHtml(order.paidVia)}</p>
+  <table>
+    <thead><tr><th>Item</th><th>Qty</th><th>Amount</th></tr></thead>
+    <tbody>${lines}</tbody>
+  </table>
+  <table class="totals">
+    <tr><td>Subtotal</td><td></td><td>₹${order.subtotal}</td></tr>
+    ${order.couponDiscount ? `<tr><td>Discount</td><td></td><td>₹${order.couponDiscount}</td></tr>` : ''}
+    <tr><td>CGST (${((gstRate * 50).toFixed(2))}%)</td><td></td><td>₹${cgst}</td></tr>
+    <tr><td>SGST (${((gstRate * 50).toFixed(2))}%)</td><td></td><td>₹${sgst}</td></tr>
+    ${order.deliveryFee ? `<tr><td>Delivery</td><td></td><td>₹${order.deliveryFee}</td></tr>` : ''}
+    ${order.loyaltyDiscount ? `<tr><td>Loyalty</td><td></td><td>₹${order.loyaltyDiscount}</td></tr>` : ''}
+    <tr class="total"><td>Total</td><td></td><td>₹${order.total}</td></tr>
+    <tr><td>Amount paid</td><td></td><td>₹${order.amountPaid}</td></tr>
+  </table>
+</body></html>`;
+
+    return {
+      invoiceNumber,
+      gstin,
+      html,
+      orderId: order.id,
+      orderedAt: placedAt,
+      fulfillment,
+      subtotal: order.subtotal,
+      couponDiscount: order.couponDiscount,
+      gst: order.gst,
+      cgst,
+      sgst,
+      deliveryFee: order.deliveryFee ?? 0,
+      loyaltyDiscount: order.loyaltyDiscount ?? 0,
+      total: order.total,
+      amountPaid: order.amountPaid,
+      paidVia: order.paidVia,
+      lines: (order.lineItems ?? []).map((line) => ({
+        title: line.title,
+        quantity: line.quantity,
+        linePrice: line.linePrice,
+        detail: line.detail,
+      })),
+    };
   }
 
   async cancel(userId: number, id: string, reason?: string) {
@@ -639,10 +760,64 @@ export class OrdersService {
     };
   }
 
+  private async deliveryFeeFor(
+    fulfillmentType?: 'dine-in' | 'deliver' | 'takeaway' | null,
+  ) {
+    if (fulfillmentType !== 'deliver') return 0;
+    return (await this.contentService?.getDeliveryFeeInr()) ?? 0;
+  }
+
+  private resolveFulfillment(dto: CreateOrderDto): {
+    fulfillmentType: 'dine-in' | 'deliver' | 'takeaway';
+    tableNumber: number | null;
+    deliveryAddress: string;
+  } {
+    const type = dto.fulfillmentType;
+    if (type === 'dine-in') {
+      const table = dto.tableNumber ?? null;
+      if (table == null || table < TABLE_MIN || table > TABLE_MAX) {
+        throw new BadRequestException({
+          message: `Dine-in orders need a table number from ${TABLE_MIN} to ${TABLE_MAX}`,
+          code: 'TABLE_REQUIRED',
+        });
+      }
+      return {
+        fulfillmentType: 'dine-in',
+        tableNumber: table,
+        deliveryAddress: dineInAddress(table),
+      };
+    }
+    if (type === 'deliver') {
+      const location = findCampusLocation(dto.deliveryAddress);
+      if (!location) {
+        throw new BadRequestException({
+          message: 'Pick a MIT ADT campus location for delivery',
+          code: 'CAMPUS_LOCATION_REQUIRED',
+        });
+      }
+      return {
+        fulfillmentType: 'deliver',
+        tableNumber: null,
+        deliveryAddress: location.label,
+      };
+    }
+    if (type === 'takeaway' || !type) {
+      return {
+        fulfillmentType: 'takeaway',
+        tableNumber: null,
+        deliveryAddress: TAKEAWAY_ADDRESS,
+      };
+    }
+    throw new BadRequestException({
+      message: 'Choose dine-in, takeaway, or campus delivery',
+      code: 'FULFILLMENT_REQUIRED',
+    });
+  }
+
   private async summarizeQuote(
     priced: PricedLine[],
     couponCode?: string,
-    redemption?: { requested?: number; balance: number },
+    redemption?: { requested?: number; balance: number; deliveryFee?: number },
   ) {
     const rules: LoyaltyRules = await this.loyaltySettings.getRules();
     const gstRate = this.configService.getOrThrow('serenity.gstRate', {
@@ -653,7 +828,8 @@ export class OrdersService {
     const coupon = await this.couponService.apply(couponCode, subtotal);
     const couponDiscount = coupon.discountInr ? -coupon.discountInr : 0;
     const gst = Math.round(subtotal * gstRate);
-    const totalBeforeLoyalty = subtotal + couponDiscount + gst;
+    const deliveryFee = redemption?.deliveryFee ?? 0;
+    const totalBeforeLoyalty = subtotal + couponDiscount + gst + deliveryFee;
 
     const balance = redemption?.balance ?? 0;
     const loyaltyPointsRedeemed = clampRedeemPoints(
@@ -682,6 +858,7 @@ export class OrdersService {
       couponLabel: coupon.label,
       couponDiscount,
       gst,
+      deliveryFee,
       total,
       loyaltyPointsEarned: earnedPointsForTotal(total, rules),
       maxRedeemablePoints: maxRedeemablePoints(
@@ -933,4 +1110,12 @@ export class OrdersService {
     const driverError = error.driverError as { code?: string } | undefined;
     return driverError?.code === '23505';
   }
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }

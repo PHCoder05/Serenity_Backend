@@ -81,6 +81,9 @@ export class SerenityOrderEntity extends EntityRelationalHelper {
   gst: number;
 
   @Column({ type: 'int', default: 0 })
+  deliveryFee: number;
+
+  @Column({ type: 'int', default: 0 })
   loyaltyDiscount: number;
 
   @Column({ type: 'int', default: 0 })

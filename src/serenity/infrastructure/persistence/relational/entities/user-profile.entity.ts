@@ -28,8 +28,17 @@ export class UserProfileEntity extends EntityRelationalHelper {
   @Column({ type: 'text', nullable: true })
   defaultAddress: string | null;
 
+  @Column({ type: 'date', nullable: true })
+  dateOfBirth: string | null;
+
   @Column({ type: 'jsonb', default: [] })
   dietPreferenceIds: string[];
+
+  @Column({ type: 'boolean', default: true })
+  pushEnabled: boolean;
+
+  @Column({ type: 'boolean', default: false })
+  emailEnabled: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

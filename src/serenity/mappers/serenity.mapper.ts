@@ -53,6 +53,10 @@ export function formatOrderDate(date: Date) {
   return `${day}${suffix} ${month} ${year} | ${time}`;
 }
 
+export function invoiceNumberFor(orderId: string) {
+  return `INV-${orderId.replace(/^order-/, '').slice(0, 18).toUpperCase()}`;
+}
+
 export function formatRelativeDate(date: Date) {
   const diffMs = Date.now() - date.getTime();
   const diffDays = Math.floor(diffMs / 86400000);
@@ -65,6 +69,7 @@ export function toOrderListItemDto(order: SerenityOrderEntity) {
   const lifecycle = projectOrderLifecycle(order);
   return {
     id: order.id,
+    invoiceNumber: invoiceNumberFor(order.id),
     orderedAt: formatOrderDate(order.orderedAt),
     item: order.itemSummary,
     note: order.note,
@@ -105,10 +110,12 @@ export function toOrderDetailDto(
     subtotal: order.subtotal,
     couponDiscount: order.couponDiscount,
     gst: order.gst,
+    deliveryFee: order.deliveryFee ?? 0,
     loyaltyDiscount: order.loyaltyDiscount ?? 0,
     loyaltyPointsRedeemed: order.loyaltyPointsRedeemed ?? 0,
     amountPaid: order.amountPaid,
     paidVia: order.paidVia,
+    paymentIntentId: order.paymentIntentId ?? null,
     status: order.status,
     statusLabel: lifecycle.label,
     lifecycle,

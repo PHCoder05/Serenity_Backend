@@ -6,10 +6,7 @@ import { AllConfigType } from '../../config/config.type';
 import { MenuItemEntity } from '../infrastructure/persistence/relational/entities/menu-item.entity';
 import { StoreStatusEntity } from '../infrastructure/persistence/relational/entities/store-status.entity';
 import { SerenityOrderEntity } from '../infrastructure/persistence/relational/entities/serenity-order.entity';
-import {
-  FEATURED_MENU_IDS,
-  RECENT_ORDER_MENU_IDS,
-} from '../../database/seeds/relational/serenity/serenity-seed.data';
+import { RECENT_ORDER_MENU_IDS } from '../../database/seeds/relational/serenity/serenity-seed.data';
 import { getMenuMeta, toMenuItemDto } from '../mappers';
 import { ContentService } from './content.service';
 
@@ -108,7 +105,9 @@ export class MenuService {
       .filter((item): item is MenuItemEntity => Boolean(item))
       .map(toMenuItemDto);
 
-    const featured = FEATURED_MENU_IDS.map((id) => byId.get(id))
+    const featuredIds = await this.contentService.getFeaturedMenuItemIds();
+    const featured = featuredIds
+      .map((id) => byId.get(id))
       .filter((item): item is MenuItemEntity => Boolean(item))
       .map(toMenuItemDto);
 
@@ -138,6 +137,7 @@ export class MenuService {
         label: mood.label,
         body: mood.body,
       })),
+      banners: await this.contentService.getActiveBanners(),
       menuSource: useLive ? 'petpooja' : 'seed',
     };
   }

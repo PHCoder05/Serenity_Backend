@@ -1,5 +1,5 @@
 import { registerAs } from '@nestjs/config';
-import { IsIn, IsNumberString, IsOptional } from 'class-validator';
+import { IsIn, IsNumberString, IsOptional, IsString } from 'class-validator';
 import validateConfig from '../../utils/validate-config';
 import { SerenityConfig } from './serenity-config.type';
 
@@ -23,6 +23,10 @@ class EnvironmentVariablesValidator {
   @IsOptional()
   @IsIn(['auto', 'seed', 'petpooja'])
   MENU_SOURCE: string;
+
+  @IsOptional()
+  @IsString()
+  SERENITY_GSTIN: string;
 }
 
 function numberOrDefault(value: string | undefined, fallback: number): number {
@@ -50,6 +54,7 @@ export default registerAs<SerenityConfig>('serenity', () => {
     ),
     loyaltyEarnRate: numberOrDefault(process.env.LOYALTY_EARN_RATE, 0.2),
     gstRate: numberOrDefault(process.env.PRICING_GST_RATE, 0.025),
+    gstin: (process.env.SERENITY_GSTIN || 'GSTIN-PENDING').trim(),
     menuSource,
   };
 });

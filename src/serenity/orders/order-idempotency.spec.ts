@@ -16,7 +16,7 @@ describe('order-idempotency helpers', () => {
       },
     ],
     deliveryAddress: '12 Serenity Lane',
-    paymentMethod: 'COD' as const,
+    paymentMethod: 'UPI' as const,
     couponCode: 'serenity10',
     note: '',
   } satisfies CreateOrderDto;

@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 
-describe('OrdersService guest checkout', () => {
+describe('OrdersService checkout (SOW online-only)', () => {
   function buildService() {
     const menuItem = {
       id: 'bowl-1',
@@ -16,60 +16,11 @@ describe('OrdersService guest checkout', () => {
 
     const orders: any[] = [];
     const orderRepository = {
-      findOne: jest.fn(({ where }: any) => {
-        if (where.guestTokenHash) {
-          return (
-            orders.find((o) => o.guestTokenHash === where.guestTokenHash) ??
-            null
-          );
-        }
-        if (where.idempotencyKey && where.isGuestCheckout) {
-          return (
-            orders.find(
-              (o) =>
-                o.guestPhone === where.guestPhone &&
-                o.idempotencyKey === where.idempotencyKey &&
-                o.isGuestCheckout === true,
-            ) ?? null
-          );
-        }
-        if (where.idempotencyKey) {
-          return (
-            orders.find(
-              (o) =>
-                o.userId === where.userId &&
-                o.idempotencyKey === where.idempotencyKey,
-            ) ?? null
-          );
-        }
-        return orders.find((o) => o.id === where.id) ?? null;
-      }),
+      findOne: jest.fn(),
       create: jest.fn((x) => x),
       save: jest.fn((row) => {
-        orders.push({
-          ...row,
-          lineItems: [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          kitchenSyncStatus: 'pending',
-          cancelReason: null,
-          foodRating: null,
-          serviceRating: null,
-          feedbackNote: null,
-          feedbackAt: null,
-          petpoojaOrderId: null,
-        });
-        return orders[orders.length - 1];
-      }),
-      update: jest.fn((id: string, patch: Record<string, unknown>) => {
-        const row = orders.find((order) => order.id === id);
-        if (row) Object.assign(row, patch);
-        return { affected: row ? 1 : 0 };
-      }),
-      delete: jest.fn((id: string) => {
-        const index = orders.findIndex((order) => order.id === id);
-        if (index >= 0) orders.splice(index, 1);
-        return { affected: index >= 0 ? 1 : 0 };
+        orders.push(row);
+        return row;
       }),
     };
 
@@ -140,55 +91,34 @@ describe('OrdersService guest checkout', () => {
       configService as any,
     );
 
-    return { service, authService, orders, paymentsService };
+    return { service, paymentsService };
   }
 
   const dto = {
     items: [{ itemId: 'bowl-1', quantity: 1 }],
-    deliveryAddress: 'Koramangala',
-    paymentMethod: 'COD' as const,
-    guest: { name: 'Guest', phone: '9876543210' },
+    deliveryAddress: 'Serenity Café, Rajbaug (Takeaway)',
+    fulfillmentType: 'takeaway' as const,
+    paymentMethod: 'UPI' as const,
+    paymentIntentId: 'pi-test',
   };
 
-  it('should requires guest contact without auth', async () => {
+  it('should requires a signed-in account', async () => {
     const { service } = buildService();
     await expect(
-      service.create(
-        undefined,
-        {
-          ...dto,
-          guest: undefined,
-        } as any,
-        'key-1',
-      ),
+      service.create(undefined, dto as any, 'key-1'),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'GUEST_CONTACT_REQUIRED' }),
+      response: expect.objectContaining({ code: 'ACCOUNT_REQUIRED' }),
     });
   });
 
-  it('should rejects non-COD guest checkout', async () => {
+  it('should rejects cash on delivery', async () => {
     const { service } = buildService();
     await expect(
       service.create(
-        undefined,
-        { ...dto, paymentMethod: 'UPI' } as any,
+        1,
+        { ...dto, paymentMethod: 'COD' } as any,
         'key-2',
       ),
     ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('should creates guest COD order with guestToken', async () => {
-    const { service, authService, orders } = buildService();
-    const result = (await service.create(undefined, dto as any, 'key-3')) as {
-      id: string;
-      guestToken?: string;
-    };
-    expect(authService.ensurePhoneUser).not.toHaveBeenCalled();
-    expect(result.guestToken).toHaveLength(48);
-    expect(orders[0].isGuestCheckout).toBe(true);
-    expect(orders[0].userId).toBeNull();
-
-    const lookup = await service.findOneByGuestToken(result.guestToken!);
-    expect(lookup.id).toBe(result.id);
   });
 });

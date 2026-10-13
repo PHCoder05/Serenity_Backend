@@ -36,7 +36,10 @@ export class ProfileService {
       email: user.email ?? '',
       phone: profile.phone ?? '',
       defaultAddress: profile.defaultAddress ?? '',
+      dateOfBirth: formatDateOfBirth(profile.dateOfBirth),
       dietPreferenceIds: profile.dietPreferenceIds,
+      pushEnabled: profile.pushEnabled !== false,
+      emailEnabled: profile.emailEnabled === true,
     };
   }
 
@@ -57,6 +60,11 @@ export class ProfileService {
     if (dto.phone !== undefined) profile.phone = dto.phone;
     if (dto.defaultAddress !== undefined) {
       profile.defaultAddress = dto.defaultAddress;
+    }
+    if (dto.pushEnabled !== undefined) profile.pushEnabled = dto.pushEnabled;
+    if (dto.emailEnabled !== undefined) profile.emailEnabled = dto.emailEnabled;
+    if (dto.dateOfBirth !== undefined) {
+      profile.dateOfBirth = dto.dateOfBirth?.trim() || null;
     }
     await this.profileRepository.save(profile);
 
@@ -91,9 +99,19 @@ export class ProfileService {
         this.profileRepository.create({
           userId,
           dietPreferenceIds: [],
+          pushEnabled: true,
+          emailEnabled: false,
         }),
       );
     }
     return profile;
   }
+}
+
+function formatDateOfBirth(value: string | Date | null | undefined) {
+  if (!value) return null;
+  if (typeof value === 'string') {
+    return value.slice(0, 10);
+  }
+  return value.toISOString().slice(0, 10);
 }

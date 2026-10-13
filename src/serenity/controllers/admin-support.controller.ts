@@ -26,6 +26,12 @@ export class AdminSupportController {
     return this.supportService.searchOrders(q);
   }
 
+  @Get('feedback')
+  @ApiOkResponse()
+  listFeedback() {
+    return this.supportService.listFeedback();
+  }
+
   @Post('orders/:id/collect')
   @ApiOkResponse()
   collectPayment(@Param('id') id: string) {

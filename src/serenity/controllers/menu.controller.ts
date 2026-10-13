@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { CAMPUS_DELIVERY_LOCATIONS } from '../campus-locations';
 import { MenuService } from '../services';
 
 @ApiTags('Menu')
@@ -27,6 +28,12 @@ export class MenuController {
   @ApiOkResponse()
   getHome() {
     return this.menuService.getHome();
+  }
+
+  @Get('delivery-locations')
+  @ApiOkResponse()
+  deliveryLocations() {
+    return { data: CAMPUS_DELIVERY_LOCATIONS };
   }
 
   @Get(':id')

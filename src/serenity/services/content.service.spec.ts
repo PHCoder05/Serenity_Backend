@@ -5,7 +5,17 @@ describe('ContentService', () => {
     const repo = {
       find: jest.fn().mockResolvedValue([]),
     };
-    const service = new ContentService(repo as any);
+    const settingsRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 1,
+        featuredMenuItemIds: [],
+        banners: [],
+        deliveryFeeInr: 0,
+      }),
+      create: jest.fn((x) => x),
+      save: jest.fn((x) => x),
+    };
+    const service = new ContentService(repo as any, settingsRepo as any);
     const moods = await service.listMoods();
     expect(moods.length).toBeGreaterThan(0);
     expect(moods[0]).toEqual(
@@ -30,7 +40,17 @@ describe('ContentService', () => {
       create: jest.fn((x) => x),
       save: jest.fn((x) => x),
     };
-    const service = new ContentService(repo as any);
+    const settingsRepo = {
+      findOne: jest.fn().mockResolvedValue({
+        id: 1,
+        featuredMenuItemIds: [],
+        banners: [],
+        deliveryFeeInr: 0,
+      }),
+      create: jest.fn((x) => x),
+      save: jest.fn((x) => x),
+    };
+    const service = new ContentService(repo as any, settingsRepo as any);
     const updated = await service.upsertMood('relax', { body: 'new body' });
     expect(updated.body).toBe('new body');
   });

@@ -4,7 +4,7 @@ import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Roles } from '../../roles/roles.decorator';
 import { RoleEnum } from '../../roles/roles.enum';
 import { RolesGuard } from '../../roles/roles.guard';
-import { UpsertHomeMoodDto } from '../dto/serenity.dto';
+import { UpsertHomeMoodDto, UpsertHomeSettingsDto } from '../dto/serenity.dto';
 import { ContentService } from '../services/content.service';
 
 @ApiBearerAuth()
@@ -25,5 +25,17 @@ export class AdminContentController {
   @ApiOkResponse()
   upsertMood(@Param('id') id: string, @Body() dto: UpsertHomeMoodDto) {
     return this.contentService.upsertMood(id, dto);
+  }
+
+  @Get('home')
+  @ApiOkResponse()
+  getHomeSettings() {
+    return this.contentService.getSettings();
+  }
+
+  @Put('home')
+  @ApiOkResponse()
+  upsertHomeSettings(@Body() dto: UpsertHomeSettingsDto) {
+    return this.contentService.upsertSettings(dto);
   }
 }

@@ -3,5 +3,6 @@ export type SerenityConfig = {
   loyaltyMaxRedeemPercent: number;
   loyaltyEarnRate: number;
   gstRate: number;
+  gstin: string;
   menuSource: 'auto' | 'seed' | 'petpooja';
 };

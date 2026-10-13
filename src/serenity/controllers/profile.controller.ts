@@ -2,7 +2,9 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Patch,
+  Post,
   Put,
   Request,
   UseGuards,
@@ -10,6 +12,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { ProfileService } from '../services';
+import { NotificationsService } from '../services/notifications.service';
 import {
   UpdateDietPreferencesDto,
   UpdateProfileDto,
@@ -20,7 +23,10 @@ import {
 @UseGuards(AuthGuard('jwt'))
 @Controller({ path: 'profile', version: '1' })
 export class ProfileController {
-  constructor(private readonly profileService: ProfileService) {}
+  constructor(
+    private readonly profileService: ProfileService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   @Get()
   @ApiOkResponse()
@@ -32,6 +38,24 @@ export class ProfileController {
   @ApiOkResponse()
   updateProfile(@Request() request, @Body() dto: UpdateProfileDto) {
     return this.profileService.updateProfile(request.user.id, dto);
+  }
+
+  @Get('notifications')
+  @ApiOkResponse()
+  listNotifications(@Request() request) {
+    return this.notificationsService.list(request.user.id);
+  }
+
+  @Post('notifications/read-all')
+  @ApiOkResponse()
+  markAllRead(@Request() request) {
+    return this.notificationsService.markAllRead(request.user.id);
+  }
+
+  @Post('notifications/:id/read')
+  @ApiOkResponse()
+  markRead(@Request() request, @Param('id') id: string) {
+    return this.notificationsService.markRead(request.user.id, id);
   }
 
   @Get('diet-preferences')

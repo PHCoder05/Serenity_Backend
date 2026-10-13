@@ -25,6 +25,7 @@ function buildOrder(
     subtotal: 300,
     couponDiscount: 0,
     gst: 20,
+    deliveryFee: 0,
     amountPaid: 320,
     paidVia: 'UPI',
     paymentIntentId: null,
@@ -51,6 +52,7 @@ describe('serenity.mapper lifecycle projection', () => {
     const detail = toOrderDetailDto(order);
 
     expect(list.statusLabel).toBe('Preparing');
+    expect(list.invoiceNumber).toBe('INV-1');
     expect(
       detail.lifecycle?.timeline.find((step) => step.key === 'preparing')
         ?.current,

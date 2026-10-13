@@ -88,6 +88,14 @@ export class OrdersController {
     return this.ordersService.reorder(request.user.id, id);
   }
 
+  @Get(':id/invoice')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOkResponse()
+  invoice(@Request() request, @Param('id') id: string) {
+    return this.ordersService.getInvoice(request.user.id, id);
+  }
+
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'))
