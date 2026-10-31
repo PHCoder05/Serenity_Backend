@@ -26,6 +26,7 @@ describe('OrdersService checkout (SOW online-only)', () => {
 
     const menuRepository = {
       find: jest.fn().mockResolvedValue([menuItem]),
+      count: jest.fn().mockResolvedValue(0),
     };
     const lineItemRepository = {
       create: jest.fn((x) => x),

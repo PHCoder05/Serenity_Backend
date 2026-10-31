@@ -13,3 +13,12 @@ export function normalizePhone(raw: string): string {
 export function isValidPhone(phone: string): boolean {
   return phone.length >= 10 && phone.length <= 15;
 }
+
+/** Enough to tell numbers apart in a log line, without storing the full phone. */
+export function maskPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 4) {
+    return '****';
+  }
+  return `${digits.slice(0, 2)}****${digits.slice(-2)}`;
+}

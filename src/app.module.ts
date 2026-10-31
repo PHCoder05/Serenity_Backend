@@ -32,6 +32,8 @@ import { SerenityModule } from './serenity/serenity.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { MongooseConfigService } from './database/mongoose-config.service';
 import { DatabaseConfig } from './database/config/database-config.type';
+import { HealthModule } from './health/health.module';
+import { AppLoggerModule } from './logging/logging.module';
 
 // <database-block>
 const infrastructureDatabaseModule = (databaseConfig() as DatabaseConfig)
@@ -49,6 +51,8 @@ const infrastructureDatabaseModule = (databaseConfig() as DatabaseConfig)
 
 @Module({
   imports: [
+    AppLoggerModule,
+    HealthModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [

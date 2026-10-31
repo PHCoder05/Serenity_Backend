@@ -1,5 +1,11 @@
 NODE_ENV=development
 APP_PORT=3000
+# One JSON line per request. debug adds more detail. Production stays info.
+LOG_LEVEL=info
+# Slack-compatible webhook. Cron alerts here when /api/v1/health goes down.
+# ALERT_WEBHOOK_URL=https://hooks.slack.com/services/...
+# TypeORM prints errors, warnings, and migrations. Set true to print every SQL statement.
+# DATABASE_LOGGING=true
 APP_NAME="Serenity API"
 API_PREFIX=api
 APP_FALLBACK_LANGUAGE=en
@@ -43,7 +49,7 @@ MAIL_CLIENT_PORT=1080
 AUTH_JWT_SECRET=secret
 AUTH_JWT_TOKEN_EXPIRES_IN=15m
 AUTH_REFRESH_SECRET=secret_for_refresh
-AUTH_REFRESH_TOKEN_EXPIRES_IN=3650d
+AUTH_REFRESH_TOKEN_EXPIRES_IN=30d
 AUTH_FORGOT_SECRET=secret_for_forgot
 AUTH_FORGOT_TOKEN_EXPIRES_IN=30m
 AUTH_CONFIRM_EMAIL_SECRET=secret_for_confirm_email

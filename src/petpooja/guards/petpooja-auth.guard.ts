@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { AllConfigType } from '../../config/config.type';
+import { timingSafeStringEqual } from '../../utils/timing-safe-equal';
 
 @Injectable()
 export class PetpoojaAuthGuard implements CanActivate {
@@ -15,9 +16,9 @@ export class PetpoojaAuthGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<Request>();
 
-    const appKey = request.headers['app-key'];
-    const appSecret = request.headers['app-secret'];
-    const accessToken = request.headers['access-token'];
+    const appKey = headerValue(request.headers['app-key']);
+    const appSecret = headerValue(request.headers['app-secret']);
+    const accessToken = headerValue(request.headers['access-token']);
 
     const expectedAppKey = this.configService.get('petpooja.appKey', {
       infer: true,
@@ -36,13 +37,17 @@ export class PetpoojaAuthGuard implements CanActivate {
     }
 
     if (
-      appKey !== expectedAppKey ||
-      appSecret !== expectedAppSecret ||
-      accessToken !== expectedAccessToken
+      !timingSafeStringEqual(appKey, expectedAppKey) ||
+      !timingSafeStringEqual(appSecret, expectedAppSecret) ||
+      !timingSafeStringEqual(accessToken, expectedAccessToken)
     ) {
       throw new UnauthorizedException('Invalid Petpooja credentials');
     }
 
     return true;
   }
+}
+
+function headerValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }

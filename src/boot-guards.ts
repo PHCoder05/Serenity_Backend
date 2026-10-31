@@ -32,6 +32,25 @@ export function assertProductionBoot(
       'Refusing to boot: set PAYMENT_CREDENTIALS_ENCRYPTION_KEY (min 16 chars)',
     );
   }
+
+  if (!env.FIREBASE_WEB_API_KEY?.trim()) {
+    throw new Error(
+      'Refusing to boot: set FIREBASE_WEB_API_KEY so phone sign-in can verify Firebase SMS',
+    );
+  }
+
+  const otpProvider = (env.AUTH_OTP_PROVIDER || '').toLowerCase();
+  if (otpProvider === 'console') {
+    throw new Error(
+      'Refusing to boot: production phone SMS is Firebase, not the console OTP',
+    );
+  }
+
+  if (env.AUTH_OTP_DEV_CODE === 'true') {
+    throw new Error(
+      'Refusing to boot: production cannot return phone OTP codes',
+    );
+  }
 }
 
 export function isCorsOriginAllowed(
@@ -60,13 +79,37 @@ export function isCorsOriginAllowed(
   }
 
   try {
-    const hostname = new URL(origin).hostname;
-    return (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.endsWith('.alligators.dev')
-    );
+    return isDevBrowserHost(new URL(origin).hostname);
   } catch {
     return false;
   }
+}
+
+function isDevBrowserHost(hostname: string): boolean {
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.alligators.dev')
+  ) {
+    return true;
+  }
+
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!match) {
+    return false;
+  }
+
+  const octets = match.slice(1).map((part) => Number(part));
+  if (octets.some((part) => !Number.isInteger(part) || part > 255)) {
+    return false;
+  }
+
+  const [first, second] = octets;
+  return (
+    first === 10 ||
+    (first === 192 && second === 168) ||
+    (first === 172 && second >= 16 && second <= 31)
+  );
 }

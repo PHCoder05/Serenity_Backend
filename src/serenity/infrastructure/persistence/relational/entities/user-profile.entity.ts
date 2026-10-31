@@ -34,6 +34,9 @@ export class UserProfileEntity extends EntityRelationalHelper {
   @Column({ type: 'jsonb', default: [] })
   dietPreferenceIds: string[];
 
+  @Column({ type: 'jsonb', default: [] })
+  savedEventIds: string[];
+
   @Column({ type: 'boolean', default: true })
   pushEnabled: boolean;
 

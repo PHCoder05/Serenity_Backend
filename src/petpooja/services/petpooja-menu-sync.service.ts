@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AllConfigType } from '../../config/config.type';
 import { MenuItemEntity } from '../../serenity/infrastructure/persistence/relational/entities/menu-item.entity';
+import { OutletEntity } from '../../serenity/infrastructure/persistence/relational/entities/outlet.entity';
 import {
   mapPetpoojaMenuPayload,
   PetpoojaMenuPayload,
@@ -17,6 +18,9 @@ export class PetpoojaMenuSyncService {
     @InjectRepository(MenuItemEntity)
     private readonly menuRepository: Repository<MenuItemEntity>,
     private readonly configService: ConfigService<AllConfigType>,
+    @Optional()
+    @InjectRepository(OutletEntity)
+    private readonly outletRepository?: Repository<OutletEntity>,
   ) {}
 
   isEnabled(): boolean {
@@ -39,14 +43,18 @@ export class PetpoojaMenuSyncService {
       return 0;
     }
 
+    const outletId = await this.outletIdForPayload(payload);
     const existing = await this.menuRepository.find();
+    const inScope = existing.filter(
+      (row) => !outletId || row.outletId == null || row.outletId === outletId,
+    );
     const byPetpoojaId = new Map(
-      existing
+      inScope
         .filter((row) => row.petpoojaItemId)
         .map((row) => [row.petpoojaItemId as string, row]),
     );
     const byName = new Map(
-      existing.map((row) => [row.name.trim().toLowerCase(), row]),
+      inScope.map((row) => [row.name.trim().toLowerCase(), row]),
     );
 
     for (const item of mappedItems) {
@@ -71,6 +79,9 @@ export class PetpoojaMenuSyncService {
         target.extras = item.extras;
         target.isCustomizable = item.isCustomizable;
         target.inStock = item.inStock;
+        if (outletId) {
+          target.outletId = outletId;
+        }
         await this.menuRepository.save(target);
         byPetpoojaId.set(item.petpoojaItemId, target);
         byName.set(target.name.trim().toLowerCase(), target);
@@ -93,6 +104,7 @@ export class PetpoojaMenuSyncService {
           isCustomizable: item.isCustomizable,
           inStock: item.inStock,
           stockQty: 100,
+          outletId,
         }),
       );
       byPetpoojaId.set(item.petpoojaItemId, created);
@@ -118,4 +130,33 @@ export class PetpoojaMenuSyncService {
 
     return result.affected ?? 0;
   }
+
+  private async outletIdForPayload(
+    payload: PetpoojaMenuPayload,
+  ): Promise<string | null> {
+    if (!this.outletRepository) {
+      return null;
+    }
+    const restId = restIdFromMenuPayload(payload);
+    if (!restId) {
+      return null;
+    }
+    const outlet = await this.outletRepository.findOne({
+      where: { petpoojaRestId: restId },
+    });
+    return outlet?.id ?? null;
+  }
+}
+
+function restIdFromMenuPayload(payload: PetpoojaMenuPayload): string | null {
+  const direct = payload.restID ?? payload.restid ?? payload.restaurantid;
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct.trim();
+  }
+  const restaurants = Array.isArray(payload.restaurants)
+    ? payload.restaurants
+    : [];
+  const first = restaurants[0] as Record<string, unknown> | undefined;
+  const nested = first?.restaurantid ?? first?.restID ?? first?.restid;
+  return typeof nested === 'string' && nested.trim() ? nested.trim() : null;
 }

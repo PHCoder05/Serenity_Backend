@@ -10,6 +10,7 @@ describe('boot-guards', () => {
     PAYMENT_GATEWAY: 'razorpay',
     PAYMENT_ALLOW_MOCK: 'false',
     PAYMENT_CREDENTIALS_ENCRYPTION_KEY: 'sixteen-chars-ok',
+    FIREBASE_WEB_API_KEY: 'firebase-web-key',
   };
 
   it('should allow development boot with lab secrets', () => {
@@ -49,7 +50,34 @@ describe('boot-guards', () => {
     ).toThrow(/PAYMENT_CREDENTIALS_ENCRYPTION_KEY/);
   });
 
-  it('should allow production when secrets and a live gateway are set', () => {
+  it('should refuse production without Firebase phone verification', () => {
+    expect(() =>
+      assertProductionBoot({
+        ...productionEnv,
+        FIREBASE_WEB_API_KEY: '',
+      }),
+    ).toThrow(/FIREBASE_WEB_API_KEY/);
+  });
+
+  it('should refuse the console OTP provider in production', () => {
+    expect(() =>
+      assertProductionBoot({
+        ...productionEnv,
+        AUTH_OTP_PROVIDER: 'console',
+      }),
+    ).toThrow(/console OTP/);
+  });
+
+  it('should refuse exposing phone OTP codes in production', () => {
+    expect(() =>
+      assertProductionBoot({
+        ...productionEnv,
+        AUTH_OTP_DEV_CODE: 'true',
+      }),
+    ).toThrow(/phone OTP codes/);
+  });
+
+  it('should allow production when secrets, a live gateway, and Firebase are set', () => {
     expect(() => assertProductionBoot(productionEnv)).not.toThrow();
   });
 
@@ -73,5 +101,19 @@ describe('boot-guards', () => {
     const env = { NODE_ENV: 'development' };
     expect(isCorsOriginAllowed('http://localhost:5173', env)).toBe(true);
     expect(isCorsOriginAllowed('https://dev9.alligators.dev', env)).toBe(true);
+  });
+
+  it('should allow private LAN origins in development', () => {
+    const env = { NODE_ENV: 'development' };
+    expect(isCorsOriginAllowed('http://10.51.165.90:8082', env)).toBe(true);
+    expect(isCorsOriginAllowed('http://192.168.1.20:8081', env)).toBe(true);
+    expect(isCorsOriginAllowed('http://172.16.0.8:8082', env)).toBe(true);
+    expect(isCorsOriginAllowed('http://8.8.8.8:8082', env)).toBe(false);
+  });
+
+  it('should reject private LAN origins in production', () => {
+    expect(
+      isCorsOriginAllowed('http://10.51.165.90:8082', productionEnv),
+    ).toBe(false);
   });
 });

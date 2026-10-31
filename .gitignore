@@ -5,6 +5,8 @@
 # Logs
 logs
 *.log
+ops/vps/backups/
+ops/vps/state/
 npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
@@ -37,6 +39,7 @@ lerna-debug.log*
 .data
 /files
 .env
+.env.production
 /ormconfig.json
 .codegpt
 /generated/prisma

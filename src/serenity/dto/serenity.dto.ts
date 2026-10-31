@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsBoolean,
+  IsEmail,
   IsIn,
   IsInt,
   IsNumber,
@@ -172,6 +173,11 @@ export class UpdateProfileDto {
 
   @ApiPropertyOptional()
   @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
   phone?: string;
 
@@ -324,6 +330,12 @@ export class CreateEventDto {
   waitlistEnabled?: boolean;
 }
 
+export class SetSavedEventDto {
+  @ApiProperty()
+  @IsBoolean()
+  saved: boolean;
+}
+
 export class CreateEventBookingDto {
   @ApiProperty()
   @IsString()
@@ -382,12 +394,19 @@ export class CancelOrderDto {
 export class CreatePaymentIntentDto {
   @ApiPropertyOptional({
     description:
-      'Required for event deposits. Optional for cart checkout when `items` are sent (server prices).',
+      'Ignored when items or eventId are sent. Server prices the cart or the event deposit.',
   })
   @IsOptional()
   @IsInt()
   @Min(1)
   amount?: number;
+
+  @ApiPropertyOptional({
+    description: 'Event whose deposit this intent pays. Server reads the deposit.',
+  })
+  @IsOptional()
+  @IsString()
+  eventId?: string;
 
   @ApiProperty({ enum: ['UPI', 'CARD'] })
   @IsIn(['UPI', 'CARD'])

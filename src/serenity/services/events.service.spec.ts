@@ -11,7 +11,10 @@ describe('EventsService', () => {
   function build(opts?: {
     event?: Partial<EventEntity>;
     bookings?: Partial<EventBookingEntity>[];
-    payments?: { assertSucceededForOrder: jest.Mock };
+    payments?: {
+      assertSucceededForOrder: jest.Mock;
+      refundForOrderCancel?: jest.Mock;
+    };
     notifications?: { create: jest.Mock };
   }) {
     const now = new Date();
@@ -94,6 +97,24 @@ describe('EventsService', () => {
         );
       }),
       create: jest.fn((x) => x),
+      update: jest.fn(
+        async (
+          where: { id?: string; userId?: number; status?: string },
+          patch: Partial<EventBookingEntity>,
+        ) => {
+          const row = bookings.find((booking) => {
+            if (where.id && booking.id !== where.id) return false;
+            if (where.userId != null && booking.userId !== where.userId) {
+              return false;
+            }
+            if (where.status && booking.status !== where.status) return false;
+            return true;
+          });
+          if (!row) return { affected: 0 };
+          Object.assign(row, patch);
+          return { affected: 1 };
+        },
+      ),
       save: jest.fn((row: EventBookingEntity) => {
         const existing = bookings.find((b) => b.id === row.id);
         if (existing) {
@@ -237,8 +258,38 @@ describe('EventsService', () => {
     expect(cancelled.status).toBe('cancelled');
   });
 
-  it('should promotes waitlisted booking when seats free', async () => {
+  it('should refunds the deposit when a booking is cancelled', async () => {
+    const refundForOrderCancel = jest
+      .fn()
+      .mockResolvedValue({ refunded: true });
     const { service } = build({
+      bookings: [
+        {
+          id: 'ebk-1',
+          userId: 1,
+          status: 'confirmed',
+          paymentIntentId: 'pi_deposit',
+          depositPaid: 100,
+        },
+      ],
+      payments: {
+        assertSucceededForOrder: jest.fn(),
+        refundForOrderCancel,
+      },
+    });
+
+    await service.cancelBooking(1, 'evt-1', 'ebk-1');
+    await service.cancelBooking(1, 'evt-1', 'ebk-1');
+
+    expect(refundForOrderCancel).toHaveBeenCalledTimes(2);
+    expect(refundForOrderCancel).toHaveBeenCalledWith({
+      paymentIntentId: 'pi_deposit',
+      reason: 'Event booking cancelled',
+    });
+  });
+
+  it('should promotes waitlisted booking when seats free', async () => {
+    const { service, notificationsService } = build({
       bookings: [
         {
           id: 'ebk-w',
@@ -249,6 +300,13 @@ describe('EventsService', () => {
     });
     const result = await service.confirmWaitlistedBooking('evt-1', 'ebk-w');
     expect(result.status).toBe('confirmed');
+    expect(notificationsService.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 1,
+        type: 'event-booking-confirmed',
+        meta: { eventId: 'evt-1', bookingId: 'ebk-w' },
+      }),
+    );
   });
 
   it('should lists bookings for the signed-in user with event summary', async () => {

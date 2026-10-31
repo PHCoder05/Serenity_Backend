@@ -14,6 +14,7 @@ import {
   DiyCatalogItemSeed,
   DiyStepKey,
 } from '../data/diy-catalog.data';
+import { addonForDiyOption } from '../pricing/diy-pricing';
 
 export type DiyQuoteInput = {
   base?: string;
@@ -84,15 +85,15 @@ export class DiyService {
       })
       .filter((option): option is DiyCatalogItemSeed => Boolean(option));
 
-    const unitPrice =
-      basePrice +
-      selected.reduce((sum, option) => sum + (option.priceDelta ?? 0), 0);
+    const addons = selected.map((option) =>
+      addonForDiyOption(option, bowlItem?.extras),
+    );
 
     return {
       menuItemId: bowlItem?.id ?? DIY_DEFAULT_MENU_ITEM_ID,
-      unitPrice,
-      detail: selected.map((option) => option.name).join(' / '),
-      ingredients: selected.map((option) => option.name),
+      unitPrice: basePrice + addons.reduce((sum, addon) => sum + addon.price, 0),
+      detail: addons.map((addon) => addon.name).join(' / '),
+      ingredients: addons.map((addon) => addon.name),
     };
   }
 

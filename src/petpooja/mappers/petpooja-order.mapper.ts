@@ -15,6 +15,7 @@ export type SerenityOrderLineInput = {
   variantId?: string;
   extraIds?: string[];
   detail?: string;
+  addons?: Array<{ id: string; name: string; price: number }>;
 };
 
 export type OrderDiscountInput = {
@@ -113,10 +114,10 @@ export function mapSerenityStatusFromPetpooja(status: string): string | null {
   }
 }
 
-/** Cancel always applies; otherwise only forward (or same) progression. */
+/** Cancel applies until the order is delivered. Otherwise only forward progression. */
 export function isStatusProgression(from: string, to: string): boolean {
   if (to === 'cancelled') {
-    return from !== 'cancelled';
+    return from !== 'cancelled' && from !== 'delivered';
   }
   if (from === 'cancelled') {
     return false;
@@ -301,6 +302,17 @@ function mapOrderItem(
     line.menuItem.extras?.filter((extra) =>
       line.extraIds?.includes(extra.id),
     ) ?? [];
+  const syncedAddons =
+    line.addons
+      ?.filter((addon) =>
+        line.menuItem.extras?.some((extra) => extra.id === addon.id),
+      )
+      .map((addon) => ({
+        id: stripPrefix(addon.id, 'a-'),
+        name: addon.name,
+        price: formatAmount(addon.price),
+        quantity: '1',
+      })) ?? null;
 
   const lineBase = line.unitPrice * line.quantity;
   const cgstAmount = lineBase * taxConfig.cgstRate;
@@ -333,12 +345,14 @@ function mapOrderItem(
     variation_name: variant?.label ?? '',
     variation_id:
       variant && line.variantId ? stripPrefix(line.variantId, 'v-') : '',
-    addon_items: extras.map((extra) => ({
-      id: stripPrefix(extra.id, 'a-'),
-      name: extra.label,
-      price: formatAmount(extra.price),
-      quantity: '1',
-    })),
+    addon_items:
+      syncedAddons ??
+      extras.map((extra) => ({
+        id: stripPrefix(extra.id, 'a-'),
+        name: extra.label,
+        price: formatAmount(extra.price),
+        quantity: '1',
+      })),
   };
 }
 

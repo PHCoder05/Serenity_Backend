@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
   ServiceUnavailableException,
@@ -10,13 +11,13 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import axios from 'axios';
-import { InjectRepository } from '@nestjs/typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import ms from 'ms';
 import crypto from 'crypto';
 import { randomStringGenerator } from '@nestjs/common/utils/random-string-generator.util';
 import { JwtService } from '@nestjs/jwt';
 import bcrypt from 'bcryptjs';
-import { IsNull, MoreThan, Repository } from 'typeorm';
+import { DataSource, IsNull, MoreThan, Repository } from 'typeorm';
 import { AuthEmailLoginDto } from './dto/auth-email-login.dto';
 import { AuthUpdateDto } from './dto/auth-update.dto';
 import { AuthProvidersEnum } from './auth-providers.enum';
@@ -40,7 +41,7 @@ import { PhoneOtpEntity } from './infrastructure/persistence/relational/entities
 import { AuthRateLimitEntity } from './infrastructure/persistence/relational/entities/auth-rate-limit.entity';
 import { SerenityOrderEntity } from '../serenity/infrastructure/persistence/relational/entities/serenity-order.entity';
 import { UserProfileEntity } from '../serenity/infrastructure/persistence/relational/entities/user-profile.entity';
-import { isValidPhone, normalizePhone } from './utils/phone.util';
+import { isValidPhone, maskPhone, normalizePhone } from './utils/phone.util';
 
 const OTP_TTL_MS = 10 * 60 * 1000;
 const OTP_RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -48,9 +49,12 @@ const OTP_RATE_MAX = 5;
 const OTP_MAX_ATTEMPTS = 5;
 const EMAIL_AUTH_WINDOW_MS = 15 * 60 * 1000;
 const EMAIL_AUTH_MAX = 40;
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('timing-pad', 10);
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly jwtService: JwtService,
     private readonly usersService: UsersService,
@@ -68,18 +72,53 @@ export class AuthService {
     @Optional()
     @InjectRepository(UserProfileEntity)
     private readonly profileRepository?: Repository<UserProfileEntity>,
+    @Optional()
+    @InjectDataSource()
+    private readonly dataSource?: DataSource,
   ) {}
 
   private readonly emailAuthHits = new Map<string, number[]>();
+  private readonly emailAuthTail = new Map<string, Promise<void>>();
 
   private async assertEmailAuthRate(action: string, email: string) {
     const key = `${action}:${email.trim().toLowerCase()}`;
     if (this.emailAuthRateRepository) {
-      const since = new Date(Date.now() - EMAIL_AUTH_WINDOW_MS);
-      const hits = await this.emailAuthRateRepository.count({
-        where: { key, hitAt: MoreThan(since) },
-      });
-      if (hits >= EMAIL_AUTH_MAX) {
+      const repository = this.emailAuthRateRepository;
+      const record = async (repo: Repository<AuthRateLimitEntity>) => {
+        const since = new Date(Date.now() - EMAIL_AUTH_WINDOW_MS);
+        const hits = await repo.count({
+          where: { key, hitAt: MoreThan(since) },
+        });
+        if (hits >= EMAIL_AUTH_MAX) {
+          throw new HttpException(
+            {
+              message: 'Too many attempts; try again later',
+              code: 'AUTH_RATE_LIMITED',
+            },
+            HttpStatus.TOO_MANY_REQUESTS,
+          );
+        }
+        await repo.save(repo.create({ key, hitAt: new Date() }));
+      };
+      if (this.dataSource) {
+        await this.dataSource.transaction(async (manager) => {
+          await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+            `auth-rate:${key}`,
+          ]);
+          await record(manager.getRepository(AuthRateLimitEntity));
+        });
+      } else {
+        await this.withEmailAuthLock(key, () => record(repository));
+      }
+      return;
+    }
+
+    await this.withEmailAuthLock(key, async () => {
+      const now = Date.now();
+      const hits = (this.emailAuthHits.get(key) ?? []).filter(
+        (at) => now - at < EMAIL_AUTH_WINDOW_MS,
+      );
+      if (hits.length >= EMAIL_AUTH_MAX) {
         throw new HttpException(
           {
             message: 'Too many attempts; try again later',
@@ -88,27 +127,31 @@ export class AuthService {
           HttpStatus.TOO_MANY_REQUESTS,
         );
       }
-      await this.emailAuthRateRepository.save(
-        this.emailAuthRateRepository.create({ key, hitAt: new Date() }),
-      );
-      return;
-    }
+      hits.push(now);
+      this.emailAuthHits.set(key, hits);
+    });
+  }
 
-    const now = Date.now();
-    const hits = (this.emailAuthHits.get(key) ?? []).filter(
-      (at) => now - at < EMAIL_AUTH_WINDOW_MS,
-    );
-    if (hits.length >= EMAIL_AUTH_MAX) {
-      throw new HttpException(
-        {
-          message: 'Too many attempts; try again later',
-          code: 'AUTH_RATE_LIMITED',
-        },
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+  private async withEmailAuthLock<T>(
+    key: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.emailAuthTail.get(key) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => gate);
+    this.emailAuthTail.set(key, tail);
+    await previous.catch(() => undefined);
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.emailAuthTail.get(key) === tail) {
+        this.emailAuthTail.delete(key);
+      }
     }
-    hits.push(now);
-    this.emailAuthHits.set(key, hits);
   }
 
   async requestPhoneOtp(phoneRaw: string) {
@@ -131,6 +174,14 @@ export class AuthService {
       });
     }
 
+    if (!this.phoneOtpCanBeDelivered()) {
+      throw new BadRequestException({
+        message:
+          'Phone OTP is not configured. Use Firebase sign-in, or set AUTH_OTP_DEV_CODE=true on a lab API.',
+        code: 'OTP_PROVIDER_UNAVAILABLE',
+      });
+    }
+
     const code = String(crypto.randomInt(100000, 1000000));
     const codeHash = await bcrypt.hash(code, 10);
     await this.phoneOtpRepository.save(
@@ -143,16 +194,7 @@ export class AuthService {
       }),
     );
 
-    const provider = process.env.AUTH_OTP_PROVIDER || 'console';
-    if (provider === 'console') {
-      if (process.env.NODE_ENV === 'production') {
-        throw new BadRequestException({
-          message: 'Phone OTP is not configured',
-          code: 'OTP_PROVIDER_UNAVAILABLE',
-        });
-      }
-      console.info(`[phone-otp] phone=${phone} code=${code}`);
-    }
+    this.logger.log(`Phone OTP issued for ${maskPhone(phone)}.`);
 
     const payload: {
       ok: true;
@@ -162,10 +204,31 @@ export class AuthService {
       ok: true,
       expiresInSec: Math.floor(OTP_TTL_MS / 1000),
     };
-    if (provider === 'console' && process.env.NODE_ENV !== 'production') {
+    if (this.exposePhoneOtpDevCode()) {
       payload.devCode = code;
     }
     return payload;
+  }
+
+  private phoneOtpCanBeDelivered(): boolean {
+    const provider = (process.env.AUTH_OTP_PROVIDER || 'console').toLowerCase();
+    if (provider !== 'console') {
+      return false;
+    }
+    if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+      return false;
+    }
+    return this.exposePhoneOtpDevCode();
+  }
+
+  private exposePhoneOtpDevCode(): boolean {
+    if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+      return false;
+    }
+    return (
+      process.env.NODE_ENV === 'test' ||
+      process.env.AUTH_OTP_DEV_CODE === 'true'
+    );
   }
 
   async verifyPhoneOtp(
@@ -289,7 +352,10 @@ export class AuthService {
   async loginWithFirebaseIdToken(idToken: string): Promise<LoginResponseDto> {
     const account = await this.lookupFirebasePhone(idToken);
     const user = await this.ensurePhoneUser(account.phone, account.name);
-    await this.claimGuestOrders(user.id as number, normalizePhone(account.phone));
+    await this.claimGuestOrders(
+      user.id as number,
+      normalizePhone(account.phone),
+    );
     return this.issueSession(user);
   }
 
@@ -422,45 +488,14 @@ export class AuthService {
     await this.assertEmailAuthRate('login', loginDto.email);
     const user = await this.usersService.findByEmail(loginDto.email);
 
-    if (!user) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: {
-          email: 'notFound',
-        },
-      });
-    }
-
-    if (user.provider !== AuthProvidersEnum.email && !user.password) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: {
-          email: `needLoginViaProvider:${user.provider}`,
-        },
-      });
-    }
-
-    if (!user.password) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: {
-          password: 'incorrectPassword',
-        },
-      });
-    }
-
+    const passwordHash = user?.password || DUMMY_PASSWORD_HASH;
     const isValidPassword = await bcrypt.compare(
       loginDto.password,
-      user.password,
+      passwordHash,
     );
 
-    if (!isValidPassword) {
-      throw new UnprocessableEntityException({
-        status: HttpStatus.UNPROCESSABLE_ENTITY,
-        errors: {
-          password: 'incorrectPassword',
-        },
-      });
+    if (!user?.password || !isValidPassword || loginDto.password === 'secret') {
+      this.invalidCredentials();
     }
 
     const hash = crypto
@@ -507,13 +542,13 @@ export class AuthService {
       });
     }
 
+    const emailForNewAccount = socialEmail && !userByEmail ? socialEmail : null;
+
     if (user) {
-      if (socialEmail && !userByEmail) {
-        user.email = socialEmail;
+      if (emailForNewAccount) {
+        user.email = emailForNewAccount;
       }
       await this.usersService.update(user.id, user);
-    } else if (userByEmail) {
-      user = userByEmail;
     } else if (socialData.id) {
       const role = {
         id: RoleEnum.user,
@@ -523,7 +558,7 @@ export class AuthService {
       };
 
       user = await this.usersService.create({
-        email: socialEmail ?? null,
+        email: emailForNewAccount,
         firstName: socialData.firstName ?? null,
         lastName: socialData.lastName ?? null,
         socialId: socialData.id,
@@ -708,6 +743,7 @@ export class AuthService {
     const hash = await this.jwtService.signAsync(
       {
         forgotUserId: user.id,
+        pv: this.passwordFingerprint(user),
       },
       {
         secret: this.configService.getOrThrow('auth.forgotSecret', {
@@ -732,6 +768,7 @@ export class AuthService {
     try {
       const jwtData = await this.jwtService.verifyAsync<{
         forgotUserId: User['id'];
+        pv?: string;
       }>(hash, {
         secret: this.configService.getOrThrow('auth.forgotSecret', {
           infer: true,
@@ -739,6 +776,14 @@ export class AuthService {
       });
 
       userId = jwtData.forgotUserId;
+      const resetUser = await this.usersService.findById(userId);
+      if (
+        !resetUser ||
+        !jwtData.pv ||
+        jwtData.pv !== this.passwordFingerprint(resetUser)
+      ) {
+        throw new Error('stale reset token');
+      }
     } catch {
       throw new UnprocessableEntityException({
         status: HttpStatus.UNPROCESSABLE_ENTITY,
@@ -935,6 +980,7 @@ export class AuthService {
           id: data.id,
           role: data.role,
           sessionId: data.sessionId,
+          hash: data.hash,
         },
         {
           secret: this.configService.getOrThrow('auth.secret', { infer: true }),
@@ -962,5 +1008,21 @@ export class AuthService {
       refreshToken,
       tokenExpires,
     };
+  }
+
+  private invalidCredentials(): never {
+    throw new UnprocessableEntityException({
+      status: HttpStatus.UNPROCESSABLE_ENTITY,
+      errors: {
+        password: 'incorrectPassword',
+      },
+    });
+  }
+
+  private passwordFingerprint(user: User): string {
+    return crypto
+      .createHash('sha256')
+      .update(user.password ?? '')
+      .digest('hex');
   }
 }

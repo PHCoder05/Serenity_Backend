@@ -27,6 +27,9 @@ export class MenuItemEntity extends EntityRelationalHelper {
   @Column({ type: 'varchar', length: 64, nullable: true })
   petpoojaItemId: string | null;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  outletId: string | null;
+
   @Column()
   name: string;
 

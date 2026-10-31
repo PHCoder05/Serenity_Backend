@@ -29,6 +29,7 @@ type PricedOrderLine = {
   variantId?: string;
   extraIds?: string[];
   detail?: string;
+  addons?: Array<{ id: string; name: string; price: number }>;
 };
 
 @Injectable()
@@ -94,6 +95,7 @@ export class PetpoojaOrderOutboundService {
       variantId: line.variantId,
       extraIds: line.extraIds,
       detail: line.detail,
+      addons: line.addons,
     }));
 
     if (!canPushOrderToPetpooja(lines)) {
