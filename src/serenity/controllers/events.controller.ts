@@ -11,7 +11,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { EventsService } from '../services';
-import { CreateEventBookingDto, CreateEventDto } from '../dto/serenity.dto';
+import { CreateEventBookingDto, CreateEventDto, SetSavedEventDto } from '../dto/serenity.dto';
 
 @ApiTags('Events')
 @Controller({ path: 'events', version: '1' })
@@ -44,6 +44,14 @@ export class EventsController {
     return this.eventsService.listMyHosted(request.user.id);
   }
 
+  @Get('me/saved')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOkResponse()
+  listSaved(@Request() request) {
+    return this.eventsService.listSaved(request.user.id);
+  }
+
   @Get(':id/availability')
   @ApiOkResponse()
   getAvailability(@Param('id') id: string) {
@@ -62,6 +70,18 @@ export class EventsController {
   @ApiOkResponse()
   create(@Request() request, @Body() dto: CreateEventDto) {
     return this.eventsService.create(request.user.id, dto);
+  }
+
+  @Post(':id/save')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOkResponse()
+  setSaved(
+    @Request() request,
+    @Param('id') id: string,
+    @Body() dto: SetSavedEventDto,
+  ) {
+    return this.eventsService.setSaved(request.user.id, id, dto.saved);
   }
 
   @Post(':id/bookings')

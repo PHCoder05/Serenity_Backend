@@ -13,6 +13,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '14'
 
   api:
     build:
@@ -30,6 +35,46 @@ services:
         condition: service_healthy
     expose:
       - '${APP_PORT:-3000}'
+    labels:
+      serenity.autoheal: 'true'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:'+(process.env.APP_PORT||3000)+'/api/v1/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '14'
+
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: serenity.autoheal
+      AUTOHEAL_INTERVAL: 30
+      AUTOHEAL_START_PERIOD: 60
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  uptime-kuma:
+    profiles: ['ops']
+    image: louislam/uptime-kuma:1
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:3002:3001'
+    volumes:
+      - uptime-kuma:/app/data
+    depends_on:
+      - api
 
   caddy:
     image: caddy:2-alpine
@@ -48,3 +93,4 @@ volumes:
   serenity-pg:
   caddy-data:
   caddy-config:
+  uptime-kuma:

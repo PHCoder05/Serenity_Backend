@@ -1,4 +1,4 @@
-import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
+import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SocialInterface } from '../social/interfaces/social.interface';
 import { FacebookInterface } from './interfaces/facebook.interface';
@@ -7,6 +7,8 @@ import { AllConfigType } from '../config/config.type';
 
 @Injectable()
 export class AuthFacebookService {
+  private readonly logger = new Logger(AuthFacebookService.name);
+
   // Base Facebook Graph API URL and API version
   private readonly baseUrl = 'https://graph.facebook.com';
   private readonly apiVersion = 'v23.0';
@@ -61,7 +63,6 @@ export class AuthFacebookService {
       // Map Facebook data to our internal social user interface
       return {
         id: data.id,
-        email: data.email || undefined, // Email may not be present depending on user permissions
         firstName: data.first_name || '',
         lastName: data.last_name || '',
       };
@@ -197,7 +198,8 @@ export class AuthFacebookService {
       const data = await response.json();
       return data.access_token;
     } catch (error) {
-      console.error('Facebook token exchange failed:', error);
+      const message = error instanceof Error ? error.message : 'unknown error';
+      this.logger.warn(`Facebook token exchange failed: ${message}`);
       throw new HttpException(
         'Failed to exchange token',
         HttpStatus.BAD_REQUEST,

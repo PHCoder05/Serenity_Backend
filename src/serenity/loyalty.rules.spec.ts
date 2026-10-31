@@ -1,6 +1,7 @@
 import {
   activeLoyaltyPoints,
   clampRedeemPoints,
+  earnedPointsForOrder,
   earnedPointsForTotal,
   LoyaltyRules,
   loyaltyExpiryCutoff,
@@ -59,6 +60,27 @@ describe('loyalty.rules', () => {
 
     it('should floor fractional requests', () => {
       expect(clampRedeemPoints(10.9, 100, 500, RULES)).toBe(10);
+    });
+  });
+
+  describe('earnedPointsForOrder', () => {
+    it('should keep earned points and drop a reversal', () => {
+      expect(
+        earnedPointsForOrder([
+          { points: 12, label: 'Bowl' },
+          { points: -4, label: 'Redeemed · Bowl' },
+          { points: -12, label: 'Earned points reversed · Bowl' },
+        ]),
+      ).toBe(0);
+    });
+
+    it('should report the earned amount when the order still stands', () => {
+      expect(
+        earnedPointsForOrder([
+          { points: 12, label: 'Bowl' },
+          { points: -4, label: 'Redeemed · Bowl' },
+        ]),
+      ).toBe(12);
     });
   });
 

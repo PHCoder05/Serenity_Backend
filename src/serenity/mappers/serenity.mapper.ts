@@ -65,7 +65,10 @@ export function formatRelativeDate(date: Date) {
   return `${diffDays} days ago`;
 }
 
-export function toOrderListItemDto(order: SerenityOrderEntity) {
+export function toOrderListItemDto(
+  order: SerenityOrderEntity,
+  loyaltyPointsEarned = 0,
+) {
   const lifecycle = projectOrderLifecycle(order);
   return {
     id: order.id,
@@ -81,6 +84,7 @@ export function toOrderListItemDto(order: SerenityOrderEntity) {
     status: order.status,
     statusLabel: lifecycle.label,
     lifecycle,
+    loyaltyPointsEarned,
   };
 }
 

@@ -16,9 +16,11 @@ export class AuthAppleService {
       audience: this.configService.get('apple.appAudience', { infer: true }),
     });
 
+    const emailVerified =
+      data.email_verified === true || data.email_verified === 'true';
     return {
       id: data.sub,
-      email: data.email,
+      email: emailVerified ? data.email : undefined,
       firstName: loginDto.firstName,
       lastName: loginDto.lastName,
     };

@@ -19,7 +19,12 @@ describe('ProfileService notification prefs', () => {
       dateOfBirth: null,
     };
     const userRepository = {
-      findOne: jest.fn().mockResolvedValue(user),
+      findOne: jest.fn(async (query?: { where?: { email?: string } }) => {
+        if (query?.where?.email === 'other@example.com') {
+          return { id: 99, email: query.where.email };
+        }
+        return user;
+      }),
       save: jest.fn(async (row) => row),
     };
     const profileRepository = {
@@ -33,7 +38,7 @@ describe('ProfileService notification prefs', () => {
       profileRepository as any,
       dietRepository as any,
     );
-    return { service, profile, profileRepository };
+    return { service, profile, profileRepository, userRepository };
   }
 
   it('should returns settings toggles on the profile', async () => {
@@ -64,6 +69,23 @@ describe('ProfileService notification prefs', () => {
     await expect(
       service.updateProfile(7, { defaultAddress: 'My hostel room 12' }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('should leaves the login email unchanged', async () => {
+    const { service, userRepository } = build();
+    const saved = await service.updateProfile(7, {
+      email: 'Ada@Example.com',
+    });
+    expect(saved.email).toBe('ada@example.com');
+    expect(userRepository.save).not.toHaveBeenCalled();
+  });
+
+  it('should rejects a different email on the profile route', async () => {
+    const { service, userRepository } = build();
+    await expect(
+      service.updateProfile(7, { email: 'other@example.com' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(userRepository.save).not.toHaveBeenCalled();
   });
 
   it('should persists notification toggles', async () => {

@@ -12,7 +12,7 @@ import { AppModule } from './app.module';
 import validationOptions from './utils/validation-options';
 import { AllConfigType } from './config/config.type';
 import { ResolvePromisesInterceptor } from './utils/serializer.interceptor';
-import { randomUUID } from 'crypto';
+import { Logger } from 'nestjs-pino';
 import { assertProductionBoot, isCorsOriginAllowed } from './boot-guards';
 
 function corsOriginAllowed(
@@ -25,7 +25,26 @@ function corsOriginAllowed(
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
+    bufferLogs: true,
   });
+  app.useLogger(app.get(Logger));
+  const http = app.getHttpAdapter().getInstance();
+  http.disable('x-powered-by');
+  http.use(
+    (
+      _req: unknown,
+      res: { setHeader: (name: string, value: string) => void },
+      next: () => void,
+    ) => {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      if ((process.env.NODE_ENV || '').toLowerCase() === 'production') {
+        res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+      }
+      next();
+    },
+  );
   app.enableCors({ origin: corsOriginAllowed });
   useContainer(app.select(AppModule), { fallbackOnErrors: true });
   const configService = app.get(ConfigService<AllConfigType>);
@@ -41,31 +60,9 @@ async function bootstrap() {
     type: VersioningType.URI,
   });
   app.useGlobalPipes(new ValidationPipe(validationOptions));
-  app.use((req: any, res: any, next: () => void) => {
-    const correlationId =
-      req.headers['x-correlation-id']?.toString() ?? randomUUID();
-    req.correlationId = correlationId;
-    res.setHeader('x-correlation-id', correlationId);
-    next();
-  });
-  const isProduction =
-    (configService.get('app.nodeEnv', { infer: true }) || '').toLowerCase() ===
-    'production';
   assertProductionBoot(process.env);
 
-  const swaggerEnabled =
-    process.env.SWAGGER_ENABLED === 'true' ||
-    (!isProduction && process.env.SWAGGER_ENABLED !== 'false');
-  if (swaggerEnabled) {
-    app.use('/docs-json', (_req: any, res: any, next: () => void) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      next();
-    });
-    app.use('/docs', (_req: any, res: any, next: () => void) => {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      next();
-    });
-  }
+  const swaggerEnabled = process.env.SWAGGER_ENABLED === 'true';
   app.useGlobalInterceptors(
     // ResolvePromisesInterceptor is used to resolve promises in responses because class-transformer can't do it
     // https://github.com/typestack/class-transformer/issues/549

@@ -10,12 +10,13 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
-import { QueryFailedError, Repository } from 'typeorm';
+import { EntityManager, QueryFailedError, Repository } from 'typeorm';
 import {
   ConfirmPaymentIntentDto,
   CreatePaymentIntentDto,
 } from '../dto/serenity.dto';
 import { EventBookingEntity } from '../infrastructure/persistence/relational/entities/event-booking.entity';
+import { EventEntity } from '../infrastructure/persistence/relational/entities/event.entity';
 import { PaymentIntentEntity } from '../infrastructure/persistence/relational/entities/payment-intent.entity';
 import { PaymentWebhookEventEntity } from '../infrastructure/persistence/relational/entities/payment-webhook-event.entity';
 import { SerenityOrderEntity } from '../infrastructure/persistence/relational/entities/serenity-order.entity';
@@ -36,6 +37,8 @@ export class PaymentsService {
     private readonly orderRepository: Repository<SerenityOrderEntity>,
     @InjectRepository(EventBookingEntity)
     private readonly bookingRepository: Repository<EventBookingEntity>,
+    @InjectRepository(EventEntity)
+    private readonly eventRepository: Repository<EventEntity>,
     private readonly gatewayConfig: PaymentGatewayConfigService,
     private readonly registry: PaymentGatewayRegistry,
     @Inject(forwardRef(() => OrdersService))
@@ -72,9 +75,32 @@ export class PaymentsService {
           code: 'PAYMENT_AMOUNT_MISMATCH',
         });
       }
-    } else if (amount == null || amount < 1) {
+    } else if (dto.eventId) {
+      const event = await this.eventRepository.findOne({
+        where: { id: dto.eventId },
+      });
+      if (!event || event.status === 'review' || event.status === 'rejected') {
+        throw new BadRequestException({
+          message: 'Event is not open for a deposit',
+          code: 'EVENT_NOT_PUBLISHED',
+        });
+      }
+      amount = event.depositAmountInr ?? 0;
+      if (amount < 1) {
+        throw new BadRequestException({
+          message: 'This event does not require a deposit',
+          code: 'PAYMENT_AMOUNT_REQUIRED',
+        });
+      }
+      if (dto.amount != null && dto.amount !== amount) {
+        throw new BadRequestException({
+          message: `Client amount ${dto.amount} does not match server deposit ${amount}`,
+          code: 'PAYMENT_AMOUNT_MISMATCH',
+        });
+      }
+    } else {
       throw new BadRequestException({
-        message: 'items or amount are required for online payment intents',
+        message: 'items or eventId are required for online payment intents',
         code: 'PAYMENT_AMOUNT_REQUIRED',
       });
     }
@@ -429,6 +455,9 @@ export class PaymentsService {
     if (intent.status === 'refunded') {
       return { ok: true, refundRef: intent.refundRef ?? undefined };
     }
+    if (intent.status === 'refund_pending') {
+      return { ok: false, error: 'Refund already in progress' };
+    }
     if (intent.status !== 'succeeded') {
       return {
         ok: false,
@@ -446,6 +475,23 @@ export class PaymentsService {
       return { ok: false, error: 'Missing provider payment reference' };
     }
 
+    const claim = await this.paymentIntentRepository
+      .createQueryBuilder()
+      .update(PaymentIntentEntity)
+      .set({ status: 'refund_pending' })
+      .where('id = :id', { id: intent.id })
+      .andWhere('status = :status', { status: 'succeeded' })
+      .execute();
+    if (!claim.affected) {
+      const latest = await this.paymentIntentRepository.findOne({
+        where: { id: intent.id },
+      });
+      if (latest?.status === 'refunded') {
+        return { ok: true, refundRef: latest.refundRef ?? undefined };
+      }
+      return { ok: false, error: 'Refund already in progress' };
+    }
+
     try {
       const gateway = await this.gatewayConfig.resolveProvider(
         intent.provider as PaymentProviderId,
@@ -457,16 +503,31 @@ export class PaymentsService {
         reason: input.reason,
         mode: gateway.mode,
       });
-      intent.status = 'refunded';
-      intent.refundRef = result.refundRef;
-      await this.paymentIntentRepository.save(intent);
+      await this.paymentIntentRepository.update(intent.id, {
+        status: 'refunded',
+        refundRef: result.refundRef,
+        failureReason: null,
+      });
       return { ok: true, refundRef: result.refundRef };
     } catch (err: any) {
+      await this.paymentIntentRepository.update(
+        { id: intent.id, status: 'refund_pending' },
+        { status: 'succeeded' },
+      );
       return {
         ok: false,
         error: err?.message || 'PSP refund failed',
       };
     }
+  }
+
+  async lockPaymentIntent(
+    manager: EntityManager,
+    paymentIntentId: string,
+  ): Promise<void> {
+    await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+      `payment-intent:${paymentIntentId}`,
+    ]);
   }
 
   private async recordWebhookEvent(input: {

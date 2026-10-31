@@ -2,15 +2,19 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ILike, In, IsNull, Not, Repository } from 'typeorm';
 import { normalizePhone } from '../../auth/utils/phone.util';
 import { UserEntity } from '../../users/infrastructure/persistence/relational/entities/user.entity';
+import { DietPreferenceEntity } from '../infrastructure/persistence/relational/entities/diet-preference.entity';
 import { UserProfileEntity } from '../infrastructure/persistence/relational/entities/user-profile.entity';
 import { SerenityOrderEntity } from '../infrastructure/persistence/relational/entities/serenity-order.entity';
 import { OrderStatusHistoryEntity } from '../infrastructure/persistence/relational/entities/order-status-history.entity';
 import { toOrderListItemDto } from '../mappers';
+import { LoyaltyService } from './loyalty.service';
+import { NotificationsService } from './notifications.service';
 
 @Injectable()
 export class SupportService {
@@ -23,6 +27,13 @@ export class SupportService {
     private readonly orderRepository: Repository<SerenityOrderEntity>,
     @InjectRepository(OrderStatusHistoryEntity)
     private readonly historyRepository: Repository<OrderStatusHistoryEntity>,
+    @Optional()
+    private readonly loyaltyService?: LoyaltyService,
+    @Optional()
+    @InjectRepository(DietPreferenceEntity)
+    private readonly dietRepository?: Repository<DietPreferenceEntity>,
+    @Optional()
+    private readonly notificationsService?: NotificationsService,
   ) {}
 
   async searchCustomers(qRaw?: string) {
@@ -74,16 +85,36 @@ export class SupportService {
         : []
       ).map((profile) => [profile.userId, profile]),
     );
+    const diets = this.dietRepository ? await this.dietRepository.find() : [];
+    const dietLabel = new Map(diets.map((diet) => [diet.id, diet.label]));
+    const users = [...byId.values()].slice(0, 20);
+    const points = new Map<number, number>();
+    if (this.loyaltyService) {
+      await Promise.all(
+        users.map(async (user) => {
+          points.set(user.id, await this.loyaltyService!.getBalance(user.id));
+        }),
+      );
+    }
 
     return {
-      data: [...byId.values()].slice(0, 20).map((user) => ({
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        provider: user.provider,
-        phone: profileByUser.get(user.id)?.phone ?? null,
-      })),
+      data: users.map((user) => {
+        const profile = profileByUser.get(user.id);
+        const dietPreferenceIds = profile?.dietPreferenceIds ?? [];
+        return {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          provider: user.provider,
+          phone: profile?.phone ?? null,
+          loyaltyPoints: points.get(user.id) ?? 0,
+          dietPreferences: dietPreferenceIds.map((id) => ({
+            id,
+            label: dietLabel.get(id) ?? id,
+          })),
+        };
+      }),
     };
   }
 
@@ -165,6 +196,12 @@ export class SupportService {
           note: 'Marked served at the counter',
         }),
       );
+      await this.notifyOrder(
+        order,
+        'order-ready',
+        'Order ready',
+        'Your order has been served.',
+      );
     }
     return this.toSupportOrder(order);
   }
@@ -184,6 +221,26 @@ export class SupportService {
       });
     }
     return order;
+  }
+
+  private async notifyOrder(
+    order: SerenityOrderEntity,
+    type: string,
+    title: string,
+    body: string,
+  ) {
+    if (!order.userId || !this.notificationsService) return;
+    try {
+      await this.notificationsService.create({
+        userId: order.userId,
+        type,
+        title,
+        body,
+        meta: { orderId: order.id },
+      });
+    } catch {
+      // Inbox is best-effort and must not block the counter.
+    }
   }
 
   private toSupportOrder(order: SerenityOrderEntity) {

@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { DataSource, DataSourceOptions } from 'typeorm';
+import { resolveTypeormLogging } from '../logging/typeorm-logging';
 
 export const AppDataSource = new DataSource({
   type: process.env.DATABASE_TYPE,
@@ -14,7 +15,7 @@ export const AppDataSource = new DataSource({
   synchronize: process.env.DATABASE_SYNCHRONIZE === 'true',
   dropSchema: false,
   keepConnectionAlive: true,
-  logging: process.env.NODE_ENV !== 'production',
+  logging: resolveTypeormLogging(process.env),
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/**/*{.ts,.js}'],
   cli: {

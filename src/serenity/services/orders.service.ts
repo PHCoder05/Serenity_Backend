@@ -30,9 +30,11 @@ import {
   toOrderDetailDto,
   toOrderListItemDto,
 } from '../mappers';
+import { itemBelongsToOutlet } from '../menu-outlet';
 import { NotificationsService } from './notifications.service';
 import {
   clampRedeemPoints,
+  earnedPointsForOrder,
   earnedPointsForTotal,
   LoyaltyRules,
   loyaltyExpiryCutoff,
@@ -72,6 +74,7 @@ type PricedLine = {
   variantId?: string;
   extraIds?: string[];
   detail?: string;
+  addons?: Array<{ id: string; name: string; price: number }>;
   ingredients: string[];
 };
 
@@ -110,7 +113,7 @@ export class OrdersService {
 
   async quote(dto: OrderQuoteDto, userId?: number) {
     const outlet = await this.outletsService.resolveOutletId(dto.outletId);
-    const priced = await this.priceItems(dto.items);
+    const priced = await this.priceItems(dto.items, outlet.id);
     const balance = userId ? await this.getLoyaltyBalance(userId) : 0;
     const deliveryFee = await this.deliveryFeeFor(dto.fulfillmentType);
     const summary = await this.summarizeQuote(priced, dto.couponCode, {
@@ -191,11 +194,9 @@ export class OrdersService {
       });
     }
 
-    const priced = await this.priceItems(dto.items);
+    const priced = await this.priceItems(dto.items, outlet.id);
     const loyaltyBalance =
-      resolvedUserId == null
-        ? 0
-        : await this.getLoyaltyBalance(resolvedUserId);
+      resolvedUserId == null ? 0 : await this.getLoyaltyBalance(resolvedUserId);
     const deliveryFee = await this.deliveryFeeFor(fulfillment.fulfillmentType);
     const summary = await this.summarizeQuote(priced, dto.couponCode, {
       requested: dto.redeemPoints,
@@ -282,6 +283,16 @@ export class OrdersService {
 
       if (this.dataSource) {
         order = await this.dataSource.transaction(async (manager) => {
+          await this.paymentsService.lockPaymentIntent(
+            manager,
+            paymentIntentId,
+          );
+          await this.paymentsService.assertSucceededForOrder({
+            userId: resolvedUserId as number,
+            paymentIntentId,
+            orderTotal: summary.total,
+            method: dto.paymentMethod,
+          });
           const saved = await persist(
             manager.getRepository(SerenityOrderEntity),
             manager.getRepository(OrderLineItemEntity),
@@ -346,12 +357,15 @@ export class OrdersService {
     });
 
     const detail = toOrderDetailDto(saved as SerenityOrderEntity);
+    const earned = summary.loyaltyPointsEarned;
     await this.notifyUserOrder(
       resolvedUserId,
       order.id,
       'order-placed',
       'Order confirmed',
-      `Your order is paid and with the kitchen.`,
+      earned > 0
+        ? `Your order is paid and with the kitchen. You earned ${earned} loyalty points.`
+        : 'Your order is paid and with the kitchen.',
     );
     return isGuest ? { ...detail, guestToken } : detail;
   }
@@ -402,8 +416,27 @@ export class OrdersService {
       take: limit,
     });
 
+    const earnedByOrder = new Map<string, number>();
+    if (orders.length) {
+      const transactions = await this.loyaltyRepository.find({
+        where: { userId, orderId: In(orders.map((order) => order.id)) },
+      });
+      const grouped = new Map<string, LoyaltyTransactionEntity[]>();
+      for (const tx of transactions) {
+        if (!tx.orderId) continue;
+        const bucket = grouped.get(tx.orderId) ?? [];
+        bucket.push(tx);
+        grouped.set(tx.orderId, bucket);
+      }
+      for (const [orderId, bucket] of grouped) {
+        earnedByOrder.set(orderId, earnedPointsForOrder(bucket));
+      }
+    }
+
     return {
-      data: orders.map(toOrderListItemDto),
+      data: orders.map((order) =>
+        toOrderListItemDto(order, earnedByOrder.get(order.id) ?? 0),
+      ),
       page,
       limit,
       total,
@@ -481,8 +514,8 @@ export class OrdersService {
   <table class="totals">
     <tr><td>Subtotal</td><td></td><td>₹${order.subtotal}</td></tr>
     ${order.couponDiscount ? `<tr><td>Discount</td><td></td><td>₹${order.couponDiscount}</td></tr>` : ''}
-    <tr><td>CGST (${((gstRate * 50).toFixed(2))}%)</td><td></td><td>₹${cgst}</td></tr>
-    <tr><td>SGST (${((gstRate * 50).toFixed(2))}%)</td><td></td><td>₹${sgst}</td></tr>
+    <tr><td>CGST (${(gstRate * 50).toFixed(2)}%)</td><td></td><td>₹${cgst}</td></tr>
+    <tr><td>SGST (${(gstRate * 50).toFixed(2)}%)</td><td></td><td>₹${sgst}</td></tr>
     ${order.deliveryFee ? `<tr><td>Delivery</td><td></td><td>₹${order.deliveryFee}</td></tr>` : ''}
     ${order.loyaltyDiscount ? `<tr><td>Loyalty</td><td></td><td>₹${order.loyaltyDiscount}</td></tr>` : ''}
     <tr class="total"><td>Total</td><td></td><td>₹${order.total}</td></tr>
@@ -545,42 +578,55 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    const cancellable = CANCELLABLE_ORDER_STATUSES;
-    if (order.status === 'cancelled') {
-      return toOrderDetailDto(order);
-    }
-    if (!cancellable.has(order.status)) {
-      throw new BadRequestException({
-        message: `Order cannot be cancelled while status is ${order.status}`,
-        code: 'ORDER_NOT_CANCELLABLE',
-      });
-    }
+    const cancelReason = reason?.trim() || 'Cancelled by customer';
+    let claimed = false;
 
-    const fromStatus = order.status;
-    order.status = 'cancelled';
-    order.cancelReason = reason?.trim() || 'Cancelled by customer';
-    await this.orderRepository.save(order);
-
-    await this.historyRepository.save(
-      this.historyRepository.create({
-        orderId: order.id,
-        fromStatus,
-        toStatus: 'cancelled',
+    if (order.status !== 'cancelled') {
+      if (!CANCELLABLE_ORDER_STATUSES.has(order.status)) {
+        throw new BadRequestException({
+          message: `Order cannot be cancelled while status is ${order.status}`,
+          code: 'ORDER_NOT_CANCELLABLE',
+        });
+      }
+      claimed = await this.claimOrderCancel({
+        order,
+        reason: cancelReason,
         source: 'customer',
-        rawStatus: null,
-        note: order.cancelReason,
-      }),
-    );
-
-    await this.restoreStockForOrder(order.id);
-    await this.reverseLoyaltyForCancel(order);
+        fromStatuses: ['confirmed'],
+      });
+      if (!claimed) {
+        const current = await this.orderRepository.findOne({
+          where: { id, userId },
+        });
+        if (!current) {
+          throw new NotFoundException('Order not found');
+        }
+        if (current.status !== 'cancelled') {
+          throw new BadRequestException({
+            message: `Order cannot be cancelled while status is ${current.status}`,
+            code: 'ORDER_NOT_CANCELLABLE',
+          });
+        }
+        order.status = current.status;
+        order.cancelReason = current.cancelReason;
+      }
+    }
 
     const refundResult = await this.paymentsService.refundForOrderCancel({
       paymentIntentId: order.paymentIntentId,
-      reason: order.cancelReason ?? undefined,
+      reason: order.cancelReason ?? cancelReason,
     });
 
-    await this.petpoojaOrderOutbound?.cancelSerenityOrder(order);
+    if (claimed) {
+      await this.petpoojaOrderOutbound?.cancelSerenityOrder(order);
+      await this.notifyUserOrder(
+        order.userId,
+        order.id,
+        'order-cancelled',
+        'Order cancelled',
+        order.cancelReason ?? 'Your order was cancelled.',
+      );
+    }
 
     return {
       ...toOrderDetailDto(order),
@@ -591,15 +637,120 @@ export class OrdersService {
     };
   }
 
-  async settleKitchenCancel(order: SerenityOrderEntity) {
-    await this.restoreStockForOrder(order.id);
-    if (order.userId != null) {
-      await this.reverseLoyaltyForCancel(order);
+  /**
+   * Kitchen already decided to cancel. Stock and loyalty move with the status
+   * claim. A retry, or a cancel the customer already finished, only refunds.
+   */
+  async settleKitchenCancel(order: SerenityOrderEntity): Promise<boolean> {
+    const reason = order.cancelReason?.trim() || 'Cancelled by kitchen';
+    if (order.status === 'delivered') {
+      return false;
     }
+    let claimed = false;
+    if (order.status !== 'cancelled') {
+      claimed = await this.claimOrderCancel({
+        order,
+        reason,
+        source: 'petpooja',
+        fromStatuses: [order.status],
+      });
+      if (!claimed) {
+        const current = await this.orderRepository.findOne({
+          where: { id: order.id },
+        });
+        if (!current || current.status !== 'cancelled') {
+          return false;
+        }
+        order.status = current.status;
+        order.cancelReason = current.cancelReason;
+      }
+    }
+
     await this.paymentsService.refundForOrderCancel({
       paymentIntentId: order.paymentIntentId,
-      reason: order.cancelReason ?? 'Cancelled by kitchen',
+      reason: order.cancelReason ?? reason,
     });
+    if (claimed) {
+      await this.notifyUserOrder(
+        order.userId,
+        order.id,
+        'order-cancelled',
+        'Order cancelled',
+        order.cancelReason ?? reason,
+      );
+    }
+    return true;
+  }
+
+  /**
+   * One transaction claims the status and restores stock and loyalty.
+   * A second caller sees zero rows and must not restore stock again.
+   */
+  private async claimOrderCancel(input: {
+    order: SerenityOrderEntity;
+    reason: string;
+    source: string;
+    fromStatuses: string[];
+  }): Promise<boolean> {
+    const run = async (
+      orderRepo: Repository<SerenityOrderEntity>,
+      lineRepo: Repository<OrderLineItemEntity>,
+      menuRepo: Repository<MenuItemEntity>,
+      loyaltyRepo: Repository<LoyaltyTransactionEntity>,
+      historyRepo: Repository<OrderStatusHistoryEntity>,
+    ) => {
+      const fromStatus = input.order.status;
+      const result = await orderRepo
+        .createQueryBuilder()
+        .update(SerenityOrderEntity)
+        .set({ status: 'cancelled', cancelReason: input.reason })
+        .where('id = :id', { id: input.order.id })
+        .andWhere('status IN (:...fromStatuses)', {
+          fromStatuses: input.fromStatuses,
+        })
+        .execute();
+      if (!result.affected) {
+        return false;
+      }
+
+      input.order.status = 'cancelled';
+      input.order.cancelReason = input.reason;
+      await this.restoreStockForOrder(input.order.id, lineRepo, menuRepo);
+      if (input.order.userId != null) {
+        await this.reverseLoyaltyForCancel(input.order, loyaltyRepo);
+      }
+      await historyRepo.save(
+        historyRepo.create({
+          orderId: input.order.id,
+          fromStatus,
+          toStatus: 'cancelled',
+          source: input.source,
+          rawStatus: null,
+          note: input.reason,
+        }),
+      );
+      return true;
+    };
+
+    if (this.dataSource) {
+      return this.dataSource.transaction((manager) =>
+        run(
+          manager.getRepository(SerenityOrderEntity),
+          manager.getRepository(OrderLineItemEntity),
+          manager.getRepository(MenuItemEntity),
+          manager.getRepository(LoyaltyTransactionEntity),
+          manager.getRepository(OrderStatusHistoryEntity),
+        ),
+      );
+    }
+
+    return run(
+      this.orderRepository,
+      this.lineItemRepository,
+      this.menuRepository,
+      this.loyaltyRepository,
+      this.historyRepository,
+    );
   }
 
   private async findIdempotentOrder(
@@ -610,7 +761,11 @@ export class OrdersService {
   ) {
     if (isGuest) {
       return this.orderRepository.findOne({
-        where: { guestPhone: guestPhone ?? '', idempotencyKey: key, isGuestCheckout: true },
+        where: {
+          guestPhone: guestPhone ?? '',
+          idempotencyKey: key,
+          isGuestCheckout: true,
+        },
       });
     }
     return this.orderRepository.findOne({
@@ -634,12 +789,15 @@ export class OrdersService {
     return { ...replay, guestToken };
   }
 
-  private async reverseLoyaltyForCancel(order: SerenityOrderEntity) {
+  private async reverseLoyaltyForCancel(
+    order: SerenityOrderEntity,
+    loyaltyRepo: Repository<LoyaltyTransactionEntity> = this.loyaltyRepository,
+  ) {
     if (order.userId == null) {
       return;
     }
     const userId = order.userId;
-    const orderTxs = await this.loyaltyRepository.find({
+    const orderTxs = await loyaltyRepo.find({
       where: { orderId: order.id },
     });
     const alreadyReversed = orderTxs.some(
@@ -674,8 +832,8 @@ export class OrdersService {
     }
 
     if (reversals.length) {
-      await this.loyaltyRepository.save(
-        reversals.map((entry) => this.loyaltyRepository.create(entry)),
+      await loyaltyRepo.save(
+        reversals.map((entry) => loyaltyRepo.create(entry)),
       );
     }
   }
@@ -770,6 +928,12 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+    if (order.status !== 'delivered') {
+      throw new BadRequestException({
+        message: 'Feedback is available after the order is completed',
+        code: 'FEEDBACK_NOT_READY',
+      });
+    }
 
     order.foodRating = dto.foodRating;
     order.serviceRating = dto.serviceRating;
@@ -858,9 +1022,10 @@ export class OrdersService {
       })),
     );
     const couponDiscount = coupon.discountInr ? -coupon.discountInr : 0;
-    const gst = Math.round(subtotal * gstRate);
+    const taxable = Math.max(0, subtotal + couponDiscount);
+    const gst = Math.round(taxable * gstRate);
     const deliveryFee = redemption?.deliveryFee ?? 0;
-    const totalBeforeLoyalty = subtotal + couponDiscount + gst + deliveryFee;
+    const totalBeforeLoyalty = taxable + gst + deliveryFee;
 
     const balance = redemption?.balance ?? 0;
     const loyaltyPointsRedeemed = clampRedeemPoints(
@@ -965,9 +1130,10 @@ export class OrdersService {
         const result = await menuRepo
           .createQueryBuilder()
           .update(MenuItemEntity)
-          .set({ stockQty: () => `"stockQty" - ${quantity}` })
+          .set({ stockQty: () => '"stockQty" - :qty' })
           .where('id = :id', { id: line.itemId })
           .andWhere('"stockQty" >= :qty', { qty: quantity })
+          .setParameter('qty', quantity)
           .execute();
         if (!result.affected) {
           throw new BadRequestException({
@@ -983,8 +1149,12 @@ export class OrdersService {
     }
   }
 
-  private async restoreStockForOrder(orderId: string) {
-    const lines = await this.lineItemRepository.find({ where: { orderId } });
+  private async restoreStockForOrder(
+    orderId: string,
+    lineRepo: Repository<OrderLineItemEntity> = this.lineItemRepository,
+    menuRepo: Repository<MenuItemEntity> = this.menuRepository,
+  ) {
+    const lines = await lineRepo.find({ where: { orderId } });
     await this.restoreStock(
       lines
         .filter((line) => line.menuItemId)
@@ -992,6 +1162,7 @@ export class OrdersService {
           id: line.menuItemId as string,
           quantity: line.quantity,
         })),
+      menuRepo,
     );
   }
 
@@ -1007,9 +1178,10 @@ export class OrdersService {
       await menuRepo
         .createQueryBuilder()
         .update(MenuItemEntity)
-        .set({ stockQty: () => `"stockQty" + ${quantity}` })
+        .set({ stockQty: () => '"stockQty" + :qty' })
         .where('id = :id', { id: row.id })
         .andWhere('"stockQty" IS NOT NULL')
+        .setParameter('qty', quantity)
         .execute();
     }
   }
@@ -1030,6 +1202,7 @@ export class OrdersService {
 
   private async priceItems(
     items: OrderQuoteDto['items'],
+    outletId: string,
   ): Promise<PricedLine[]> {
     if (!items.length) {
       throw new BadRequestException({
@@ -1042,6 +1215,9 @@ export class OrdersService {
       where: { id: In(items.map((item) => item.itemId)) },
     });
     const menuById = new Map(menuItems.map((item) => [item.id, item]));
+    const exclusiveCount = await this.menuRepository.count({
+      where: { outletId },
+    });
 
     return items.map((cartItem) => {
       const menuItem = menuById.get(cartItem.itemId);
@@ -1051,16 +1227,19 @@ export class OrdersService {
           code: 'MENU_ITEM_UNKNOWN',
         });
       }
+      if (!itemBelongsToOutlet(menuItem, outletId, exclusiveCount > 0)) {
+        throw new BadRequestException({
+          message: `${menuItem.name} is not on this outlet's menu`,
+          code: 'MENU_ITEM_WRONG_OUTLET',
+        });
+      }
       if (!menuItem.inStock) {
         throw new BadRequestException({
           message: `${menuItem.name} is out of stock`,
           code: 'MENU_ITEM_OOS',
         });
       }
-      if (
-        menuItem.stockQty != null &&
-        cartItem.quantity > menuItem.stockQty
-      ) {
+      if (menuItem.stockQty != null && cartItem.quantity > menuItem.stockQty) {
         throw new BadRequestException({
           message: `${menuItem.name} does not have enough stock`,
           code: 'MENU_ITEM_OOS',
@@ -1074,7 +1253,11 @@ export class OrdersService {
             code: 'DIY_SELECTION_INVALID',
           });
         }
-        const diy = priceDiyBowl(menuItem.basePrice, cartItem.diySelections);
+        const diy = priceDiyBowl(
+          menuItem.basePrice,
+          cartItem.diySelections,
+          menuItem.extras,
+        );
         return {
           itemId: menuItem.id,
           menuItem,
@@ -1084,6 +1267,7 @@ export class OrdersService {
           lineTotal: diy.unitPrice * cartItem.quantity,
           detail: diy.detail,
           ingredients: diy.ingredients,
+          addons: diy.addons,
         };
       }
 

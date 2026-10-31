@@ -106,6 +106,45 @@ describe('PetpoojaOrderMapper', () => {
     expect(orderTax[1]).toMatchObject({ title: 'SGST' });
   });
 
+  it('should send DIY components that match PetPooja addons', () => {
+    const payload = buildPetpoojaSaveOrderPayload({
+      restId: 'test-rest-id',
+      orderId: 'order-diy',
+      customerName: 'Aarav Mehta',
+      customerPhone: '9876543210',
+      deliveryAddress: 'Dine In · Table 4',
+      paymentMethod: 'UPI',
+      callbackUrl: 'https://example.com/api/v1/petpooja/webhook/callback',
+      items: [
+        {
+          menuItem,
+          quantity: 1,
+          unitPrice: 490,
+          detail: 'Herbed Rice / Paneer Lababdar / Thai Slaw',
+          addons: [
+            { id: 'a-8001', name: 'Avocado slices', price: 70 },
+            { id: 'a-herbed-rice', name: 'Herbed Rice', price: 20 },
+          ],
+        },
+      ],
+      subtotal: 490,
+      gst: 0,
+      total: 490,
+      orderedAt: new Date('2026-06-28T14:30:00.000Z'),
+    });
+
+    const orderItem = (payload.orderinfo as any).OrderInfo.OrderItem.details[0];
+    expect(orderItem.description).toContain('Herbed Rice');
+    expect(orderItem.addon_items).toEqual([
+      {
+        id: '8001',
+        name: 'Avocado slices',
+        price: '70.00',
+        quantity: '1',
+      },
+    ]);
+  });
+
   it('should require petpoojaItemId on every line before pushing', () => {
     expect(
       canPushOrderToPetpooja([
@@ -142,7 +181,8 @@ describe('PetpoojaOrderMapper', () => {
     expect(isStatusProgression('confirmed', 'accepted')).toBe(true);
     expect(isStatusProgression('preparing', 'ready')).toBe(true);
     expect(isStatusProgression('dispatched', 'accepted')).toBe(false);
-    expect(isStatusProgression('delivered', 'cancelled')).toBe(true);
+    expect(isStatusProgression('confirmed', 'cancelled')).toBe(true);
+    expect(isStatusProgression('delivered', 'cancelled')).toBe(false);
     expect(isStatusProgression('cancelled', 'accepted')).toBe(false);
     expect(isStatusProgression('cancelled', 'cancelled')).toBe(false);
   });

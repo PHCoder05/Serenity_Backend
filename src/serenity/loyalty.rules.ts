@@ -64,3 +64,15 @@ export function earnedPointsForTotal(
 ): number {
   return Math.max(Math.round(netTotal * rules.earnRate), 0);
 }
+
+export function earnedPointsForOrder(
+  transactions: Array<{ points: number; label: string }>,
+): number {
+  const earned = transactions
+    .filter((tx) => tx.points > 0)
+    .reduce((sum, tx) => sum + tx.points, 0);
+  const reversed = transactions
+    .filter((tx) => tx.label.startsWith('Earned points reversed'))
+    .reduce((sum, tx) => sum + Math.abs(tx.points), 0);
+  return Math.max(0, earned - reversed);
+}

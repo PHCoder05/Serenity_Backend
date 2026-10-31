@@ -10,6 +10,7 @@ import { randomBytes } from 'crypto';
 import { DataSource, In, Repository } from 'typeorm';
 import { EventEntity } from '../infrastructure/persistence/relational/entities/event.entity';
 import { EventBookingEntity } from '../infrastructure/persistence/relational/entities/event-booking.entity';
+import { UserProfileEntity } from '../infrastructure/persistence/relational/entities/user-profile.entity';
 import {
   CreateEventBookingDto,
   CreateEventDto,
@@ -31,6 +32,9 @@ export class EventsService {
     private readonly dataSource?: DataSource,
     @Optional()
     private readonly notificationsService?: NotificationsService,
+    @Optional()
+    @InjectRepository(UserProfileEntity)
+    private readonly profileRepository?: Repository<UserProfileEntity>,
   ) {}
 
   async findAll(query: { audience?: string; status?: string; q?: string }) {
@@ -39,9 +43,9 @@ export class EventsService {
     });
 
     const filtered = events.filter((event) => {
-      if (event.status === 'review' && query.status !== 'review') return false;
-      if (event.status === 'rejected' && query.status !== 'rejected')
+      if (event.status === 'review' || event.status === 'rejected') {
         return false;
+      }
       if (query.audience && event.audience !== query.audience) return false;
       if (query.status && event.status !== query.status) return false;
       if (query.q) {
@@ -61,13 +65,13 @@ export class EventsService {
   }
 
   async findOne(id: string) {
-    const event = await this.requireEvent(id);
+    const event = await this.requirePublishedEvent(id);
     const availability = await this.computeAvailability(event);
     return this.toDetail(event, availability);
   }
 
   async getAvailability(id: string) {
-    const event = await this.requireEvent(id);
+    const event = await this.requirePublishedEvent(id);
     return this.computeAvailability(event);
   }
 
@@ -113,16 +117,14 @@ export class EventsService {
         title: dto.title,
         subtitle: dto.subtitle,
         description: dto.description,
-        dateLabel: dto.dateLabel,
         location: dto.location,
         audience: dto.audience,
         status: 'review',
         createdByUserId: userId,
         rejectReason: null,
         rejectedAt: null,
-        image:
-          dto.image ??
-          'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80',
+        image: dto.image?.trim() || '',
+        dateLabel: dto.dateLabel.trim().slice(0, 64),
         agenda: dto.agenda ?? [],
         menuHighlights: dto.menuHighlights ?? [],
         hostName: `Host ${userId}`,
@@ -166,34 +168,55 @@ export class EventsService {
       paymentIntentId = dto.paymentIntentId;
     }
 
-    if (this.dataSource) {
-      return this.dataSource.transaction(async (manager) => {
-        const locked = await manager.getRepository(EventEntity).findOne({
-          where: { id: eventId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (!locked) {
-          throw new NotFoundException('Event not found');
-        }
-        return this.insertBooking(
-          manager.getRepository(EventBookingEntity),
-          locked,
+    const receipt = this.dataSource
+      ? await this.dataSource.transaction(async (manager) => {
+          if (paymentIntentId) {
+            await this.paymentsService.lockPaymentIntent(
+              manager,
+              paymentIntentId,
+            );
+            await this.paymentsService.assertSucceededForOrder({
+              userId,
+              paymentIntentId,
+              orderTotal: depositRequired,
+            });
+          }
+          const locked = await manager.getRepository(EventEntity).findOne({
+            where: { id: eventId },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (!locked) {
+            throw new NotFoundException('Event not found');
+          }
+          return this.insertBooking(
+            manager.getRepository(EventBookingEntity),
+            locked,
+            userId,
+            dto,
+            paymentIntentId,
+            depositPaid,
+          );
+        })
+      : await this.insertBooking(
+          this.bookingRepository,
+          event,
           userId,
           dto,
           paymentIntentId,
           depositPaid,
         );
+
+    if (this.notificationsService) {
+      const waitlisted = receipt.status === 'waitlisted';
+      await this.notificationsService.create({
+        userId,
+        type: waitlisted ? 'event-waitlisted' : 'event-booked',
+        title: waitlisted ? 'You are on the waitlist' : 'Event seat booked',
+        body: `${event.title} · ${receipt.bookingNumber} · ${receipt.guestCount} seat${receipt.guestCount === 1 ? '' : 's'}.`,
+        meta: { eventId: event.id, bookingId: receipt.id },
       });
     }
-
-    return this.insertBooking(
-      this.bookingRepository,
-      event,
-      userId,
-      dto,
-      paymentIntentId,
-      depositPaid,
-    );
+    return receipt;
   }
 
   private async insertBooking(
@@ -248,18 +271,36 @@ export class EventsService {
         code: 'EVENT_BOOKING_FORBIDDEN',
       });
     }
-    if (booking.status === 'cancelled') {
-      return this.toBookingDto(booking);
+    if (booking.status !== 'cancelled') {
+      const claimed = await this.bookingRepository.update(
+        { id: booking.id, userId, status: booking.status },
+        { status: 'cancelled' },
+      );
+      if (!claimed.affected) {
+        const current = await this.requireBooking(eventId, bookingId);
+        if (current.userId !== userId) {
+          throw new ForbiddenException({
+            message: 'Not your booking',
+            code: 'EVENT_BOOKING_FORBIDDEN',
+          });
+        }
+        if (current.status !== 'cancelled') {
+          throw new BadRequestException({
+            message: `Booking cannot be cancelled while status is ${current.status}`,
+            code: 'EVENT_BOOKING_NOT_CANCELLABLE',
+          });
+        }
+      }
     }
-    booking.status = 'cancelled';
-    await this.bookingRepository.save(booking);
-    if (booking.paymentIntentId) {
+
+    const current = await this.requireBooking(eventId, bookingId);
+    if (current.paymentIntentId) {
       await this.paymentsService.refundForOrderCancel({
-        paymentIntentId: booking.paymentIntentId,
+        paymentIntentId: current.paymentIntentId,
         reason: 'Event booking cancelled',
       });
     }
-    return this.toBookingDto(booking);
+    return this.toBookingDto(current);
   }
 
   async adminList() {
@@ -322,7 +363,7 @@ export class EventsService {
       await this.notifyHost(event, {
         type: 'event-published',
         title: 'Your event was approved',
-        body: `${event.title} is now ${event.status}.`,
+        body: `${event.title} is ${eventStatusPhrase(event.status)}.`,
       });
     }
     const availability = await this.computeAvailability(event);
@@ -396,32 +437,105 @@ export class EventsService {
       return this.toBookingDto(booking);
     };
 
-    if (this.dataSource) {
-      return this.dataSource.transaction(async (manager) => {
-        const locked = await manager.getRepository(EventEntity).findOne({
-          where: { id: eventId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (!locked) {
-          throw new NotFoundException('Event not found');
-        }
-        const { remainingSeats } = await this.computeAvailability(
-          locked,
-          manager.getRepository(EventBookingEntity),
-        );
-        if (booking.guestCount > remainingSeats) {
-          throw new BadRequestException({
-            message: 'Not enough seats to confirm waitlisted booking',
-            code: 'EVENT_FULL',
+    const confirmed = this.dataSource
+      ? await this.dataSource.transaction(async (manager) => {
+          const locked = await manager.getRepository(EventEntity).findOne({
+            where: { id: eventId },
+            lock: { mode: 'pessimistic_write' },
           });
-        }
-        booking.status = 'confirmed';
-        await manager.getRepository(EventBookingEntity).save(booking);
-        return this.toBookingDto(booking);
-      });
-    }
+          if (!locked) {
+            throw new NotFoundException('Event not found');
+          }
+          const { remainingSeats } = await this.computeAvailability(
+            locked,
+            manager.getRepository(EventBookingEntity),
+          );
+          if (booking.guestCount > remainingSeats) {
+            throw new BadRequestException({
+              message: 'Not enough seats to confirm waitlisted booking',
+              code: 'EVENT_FULL',
+            });
+          }
+          booking.status = 'confirmed';
+          await manager.getRepository(EventBookingEntity).save(booking);
+          return this.toBookingDto(booking);
+        })
+      : await confirm();
 
-    return confirm();
+    await this.notifyGuest(booking, {
+      type: 'event-booking-confirmed',
+      title: 'Your seat is confirmed',
+      body: `${event.title} has a seat for you. Booking ${booking.bookingNumber}.`,
+    });
+    return confirmed;
+  }
+
+  async listSaved(userId: number) {
+    const profile = await this.savedProfile(userId);
+    const ids = profile.savedEventIds ?? [];
+    if (!ids.length) return { data: [] };
+    const events = await this.eventRepository.find({ where: { id: In(ids) } });
+    const byId = new Map(events.map((event) => [event.id, event]));
+    return {
+      data: ids
+        .map((id) => byId.get(id))
+        .filter((event): event is EventEntity => Boolean(event))
+        .map((event) => this.toSummary(event)),
+    };
+  }
+
+  async setSaved(userId: number, eventId: string, saved: boolean) {
+    await this.requireEvent(eventId);
+    const profile = await this.savedProfile(userId);
+    const current = new Set(profile.savedEventIds ?? []);
+    if (saved) {
+      if (current.size >= 50 && !current.has(eventId)) {
+        throw new BadRequestException({
+          message: 'You can save up to 50 events',
+          code: 'SAVED_EVENTS_LIMIT',
+        });
+      }
+      current.add(eventId);
+    } else {
+      current.delete(eventId);
+    }
+    profile.savedEventIds = [...current];
+    await this.profileRepository!.save(profile);
+    return this.listSaved(userId);
+  }
+
+  private async notifyGuest(
+    booking: EventBookingEntity,
+    input: { type: string; title: string; body: string },
+  ) {
+    if (!booking.userId || !this.notificationsService) return;
+    await this.notificationsService.create({
+      userId: booking.userId,
+      type: input.type,
+      title: input.title,
+      body: input.body,
+      meta: { eventId: booking.eventId, bookingId: booking.id },
+    });
+  }
+
+  private async savedProfile(userId: number) {
+    if (!this.profileRepository) {
+      throw new BadRequestException('Saved events are unavailable');
+    }
+    let profile = await this.profileRepository.findOne({ where: { userId } });
+    if (!profile) {
+      profile = await this.profileRepository.save(
+        this.profileRepository.create({
+          userId,
+          dietPreferenceIds: [],
+          savedEventIds: [],
+          pushEnabled: true,
+          emailEnabled: false,
+        }),
+      );
+    }
+    profile.savedEventIds = profile.savedEventIds ?? [];
+    return profile;
   }
 
   private async notifyHost(
@@ -441,6 +555,14 @@ export class EventsService {
   private async requireEvent(id: string) {
     const event = await this.eventRepository.findOne({ where: { id } });
     if (!event) throw new NotFoundException('Event not found');
+    return event;
+  }
+
+  private async requirePublishedEvent(id: string) {
+    const event = await this.requireEvent(id);
+    if (event.status === 'review' || event.status === 'rejected') {
+      throw new NotFoundException('Event not found');
+    }
     return event;
   }
 
@@ -551,4 +673,12 @@ export class EventsService {
       registrationCloseAt: event.registrationCloseAt?.toISOString() ?? '',
     };
   }
+}
+
+function eventStatusPhrase(status: string) {
+  if (status === 'registration-open') return 'open for registration';
+  if (status === 'registration-closed') return 'closed for registration';
+  if (status === 'review') return 'waiting for a decision';
+  if (status === 'rejected') return 'not approved';
+  return status.replace(/-/g, ' ');
 }

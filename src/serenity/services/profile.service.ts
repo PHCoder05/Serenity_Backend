@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity } from '../../users/infrastructure/persistence/relational/entities/user.entity';
@@ -50,10 +54,25 @@ export class ProfileService {
       throw new NotFoundException('User not found');
     }
 
+    let userChanged = false;
     if (dto.fullName) {
       const [firstName, ...rest] = dto.fullName.trim().split(/\s+/);
       user.firstName = firstName ?? user.firstName;
       user.lastName = rest.join(' ') || user.lastName;
+      userChanged = true;
+    }
+    if (dto.email !== undefined) {
+      const email = dto.email.trim().toLowerCase();
+      const current = (user.email ?? '').trim().toLowerCase();
+      if (email !== current) {
+        throw new BadRequestException({
+          message:
+            'Open the confirmation link we send before this email can be used to sign in.',
+          code: 'EMAIL_CHANGE_REQUIRES_CONFIRMATION',
+        });
+      }
+    }
+    if (userChanged) {
       await this.userRepository.save(user);
     }
 
@@ -112,6 +131,7 @@ export class ProfileService {
         this.profileRepository.create({
           userId,
           dietPreferenceIds: [],
+          savedEventIds: [],
           pushEnabled: true,
           emailEnabled: false,
         }),

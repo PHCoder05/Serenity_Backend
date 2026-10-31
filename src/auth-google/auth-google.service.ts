@@ -43,7 +43,7 @@ export class AuthGoogleService {
 
     return {
       id: data.sub,
-      email: data.email,
+      email: data.email_verified ? data.email : undefined,
       firstName: data.given_name,
       lastName: data.family_name,
     };

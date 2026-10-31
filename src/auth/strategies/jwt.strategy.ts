@@ -7,6 +7,7 @@ import { JwtPayloadType } from './types/jwt-payload.type';
 import { AllConfigType } from '../../config/config.type';
 import { SessionService } from '../../session/session.service';
 import { UsersService } from '../../users/users.service';
+import { timingSafeStringEqual } from '../../utils/timing-safe-equal';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
@@ -24,12 +25,17 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   public async validate(
     payload: JwtPayloadType,
   ): Promise<OrNeverType<JwtPayloadType>> {
-    if (!payload.id || !payload.sessionId) {
+    if (!payload.id || !payload.sessionId || !payload.hash) {
       throw new UnauthorizedException();
     }
 
     const session = await this.sessionService.findById(payload.sessionId);
-    if (!session) {
+    if (
+      !session?.hash ||
+      !timingSafeStringEqual(session.hash, payload.hash) ||
+      session.user?.id == null ||
+      String(session.user.id) !== String(payload.id)
+    ) {
       throw new UnauthorizedException();
     }
 

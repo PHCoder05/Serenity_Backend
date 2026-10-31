@@ -55,6 +55,8 @@ export class FilesLocalController {
   }
 
   @Get(':path')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
   @ApiExcludeEndpoint()
   download(@Param('path') path, @Response() response) {
     return response.sendFile(path, { root: './files' });

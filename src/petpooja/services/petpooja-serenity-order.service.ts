@@ -83,30 +83,41 @@ export class PetpoojaSerenityOrderService {
         ? dto.orderID.trim()
         : undefined;
 
-    await this.orderRepository.update(order.id, {
-      status: nextStatus,
-      petpoojaOrderId: posId ?? order.petpoojaOrderId,
-      cancelReason:
-        nextStatus === 'cancelled'
-          ? (dto.cancel_reason ?? order.cancelReason)
-          : order.cancelReason,
-      kitchenSyncStatus: nextStatus === 'cancelled' ? 'cancelled' : 'synced',
-      ...riderPatch,
-    });
+    if (nextStatus === 'cancelled' && this.ordersService) {
+      await this.orderRepository.update(order.id, {
+        petpoojaOrderId: posId ?? order.petpoojaOrderId,
+        kitchenSyncStatus: 'cancelled',
+        ...riderPatch,
+      });
+      order.cancelReason =
+        dto.cancel_reason ?? order.cancelReason ?? 'Cancelled by kitchen';
+      await this.ordersService.settleKitchenCancel(order);
+    } else {
+      await this.orderRepository.update(order.id, {
+        status: nextStatus,
+        petpoojaOrderId: posId ?? order.petpoojaOrderId,
+        cancelReason:
+          nextStatus === 'cancelled'
+            ? (dto.cancel_reason ?? order.cancelReason)
+            : order.cancelReason,
+        kitchenSyncStatus: nextStatus === 'cancelled' ? 'cancelled' : 'synced',
+        ...riderPatch,
+      });
 
-    await this.appendHistory({
-      orderId: order.id,
-      fromStatus: order.status,
-      toStatus: nextStatus,
-      source: 'petpooja',
-      rawStatus: dto.status,
-      note: dto.cancel_reason ?? null,
-    });
+      await this.appendHistory({
+        orderId: order.id,
+        fromStatus: order.status,
+        toStatus: nextStatus,
+        source: 'petpooja',
+        rawStatus: dto.status,
+        note: dto.cancel_reason ?? null,
+      });
 
-    if (nextStatus === 'cancelled') {
-      order.status = nextStatus;
-      order.cancelReason = dto.cancel_reason ?? order.cancelReason;
-      await this.ordersService?.settleKitchenCancel(order);
+      if (nextStatus === 'cancelled') {
+        order.status = nextStatus;
+        order.cancelReason = dto.cancel_reason ?? order.cancelReason;
+        await this.ordersService?.settleKitchenCancel(order);
+      }
     }
 
     await this.ordersService?.notifyUserOrder(
